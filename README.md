@@ -2,7 +2,7 @@
 
 ## ClientX 
 
-This is an implementation of the Siemens Teamcenter ClientX .NET example in Python.
+This is an implementation of the backend code in the HelloTeamcenter example, i.e. ClientX .NET example in Python. This does not use the pythonnet package.
 
 This has been used extensively with Teamcenter 12.0, so must be tested with later versions.
 
@@ -10,5 +10,5 @@ This has been used to access Teamcenter data using the SOAP interface and also u
 
 ## Other Folders
 
-These are all auto-translations of the original .NET examples that ship with Teamcenter.  None has been tested.
+These are all auto-translations of the original .NET examples that ship with Teamcenter.  None has been tested.  These examples all use the pythonnet package.
 
