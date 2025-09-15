@@ -1,0 +1,2 @@
+xlwings>=0.30
+pythonnet>=3.0
