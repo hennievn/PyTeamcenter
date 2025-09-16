@@ -7,40 +7,295 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-# --- pythonnet/bootstrap -----------------------------------------------------
-import clr  # type: ignore[import-not-found]
+# --- Pythonnet / .NET bootstrap ----------------------------------------------
+TC_BIN = os.environ.get("TC_BIN")  # e.g. r"C:\Siemens\Teamcenter\soa_client\bin"
+if TC_BIN and TC_BIN not in sys.path:
+    sys.path.append(TC_BIN)
 
-# 1) Make sure your TC .NET client assemblies are on sys.path:
-#    e.g., r"C:\Siemens\Teamcenter\install\soa_client\dotnet", adjust as needed.
-ASSEMBLY_DIRS = [
-    os.environ.get("TC_NET_ASM", ""),   # allow override
-]
-for d in ASSEMBLY_DIRS:
-    if d and d not in sys.path:
-        sys.path.append(d)
+import clr  # type: ignore
 
-# 2) Load the assemblies you actually have (names can differ by version).
-#    Adjust these if AddReference fails and use the names from your bin folder.
-clr.AddReference("Teamcenter.Soa.Client")
-clr.AddReference("Teamcenter.Services.Core")
-clr.AddReference("Teamcenter.Services.Strong.Core")
-clr.AddReference("Teamcenter.Fms.Client")  # for FileManagementUtility
+# Load the core assemblies (names differ by packing; these are typical)
+# If your site uses different assembly names, call AddReference with the DLL filename.
+for asm in ("tcsoacommon", "tcsoaclient"):
+    try:
+        clr.AddReference(asm)
+    except Exception:
+        pass  # If already loaded or bundled under a different name
 
-# --- Imports from .NET (names may vary across versions) ----------------------
-# NAMESPACE NOTE:
-# The namespaces below follow common TC .NET layouts. If an import fails,
-# open Object Browser (ILDASM/dotPeek) and adjust.
-from System import Array, String  # type: ignore
-from System import Convert  # type: ignore
+# --- Import .NET namespaces (PascalCase in .NET) ------------------------------
+from Teamcenter.Soa.Client import Connection, FileManagementUtility  # type: ignore
 
-from Teamcenter.Soa.Client import Connection  # type: ignore
-from Teamcenter.Soa.Client import Model  # type: ignore
-from Teamcenter.Soa.Client.FileManagement import FileManagementUtility  # type: ignore
+# Session comes from Loose
+try:
+    from Teamcenter.Services.Loose.Core import SessionService  # type: ignore
+except ImportError as ex:
+    raise ImportError("Could not import Teamcenter.Services.Loose.Core.SessionService") from ex
 
-from Teamcenter.Services.Strong.Core import DataManagementService  # type: ignore
-from Teamcenter.Services.Core._2008_06.DataManagement import (  # type: ignore
-    GetItemAndRelatedObjectsInputData,
-)
+# DataManagement is Strong, not Loose. Try unversioned first, then versioned.
+DMServiceType = None
+try:
+    # Newer clients sometimes provide an unversioned strong core
+    from Teamcenter.Services.Strong.Core import DataManagementService as _DM_unversioned  # type: ignore
+    DMServiceType = _DM_unversioned
+except Exception:
+    pass
+
+if DMServiceType is None:
+    # Commonly present versioned namespace; adjust or extend as needed
+    try:
+        from Teamcenter.Services.Strong.Core._2008_06 import DataManagementService as _DM_2008_06  # type: ignore
+        DMServiceType = _DM_2008_06
+    except Exception:
+        DMServiceType = None
+
+# Final fallback: search all loaded types for a Strong/Core/*/DataManagementService
+if DMServiceType is None:
+    import System  # type: ignore
+    assemblies = list(System.AppDomain.CurrentDomain.GetAssemblies())
+    candidates = []
+    for asm in assemblies:
+        try:
+            for t in asm.GetTypes():
+                fn = t.FullName or ""
+                if (fn.startswith("Teamcenter.Services.Strong.Core")
+                        and fn.endswith(".DataManagementService")):
+                    candidates.append(t)
+        except Exception:
+            continue
+    # Prefer unversioned, then lowest version tag
+    if candidates:
+        # If both unversioned and versioned exist, unversioned usually has exactly 4 dots
+        def _score(t):
+            fn = t.FullName
+            return (0 if fn.count(".") <= 5 else 1, fn)  # crude but effective
+        candidates.sort(key=_score)
+        DMServiceType = candidates[0]
+
+if DMServiceType is None:
+    raise ImportError(
+        "Could not locate Teamcenter.Services.Strong.Core.*.DataManagementService. "
+        "Verify your client DLLs and versioned namespace."
+    )
+
+
+# ------------------ DataManagement: latest revision resolvers ------------------
+
+def _get_dm(conn) -> object:
+    """Get a DataManagementService instance from Strong.Core."""
+    # In .NET the service classes expose a static GetService(Connection) factory.
+    get_service = getattr(DMServiceType, "GetService", None)
+    if get_service is None:
+        raise RuntimeError(f"{DMServiceType} does not expose static GetService(Connection).")
+    return get_service(conn)
+
+
+def fetch_latest_via_get_item_by_id(conn: Connection, item_id: str):
+    """
+    Resolve (Item, latest ItemRevision) using revId='0' semantics.
+    This wires to Strong.Core DataManagementService.
+    """
+    dm = _get_dm(conn)
+
+    # Prefer the canonical call if available
+    if hasattr(dm, "GetItemFromId"):
+        resp = dm.GetItemFromId(item_id, "0")
+        # Try common shapes in a tolerant order.
+        for obj in (resp, getattr(resp, "Output", None),):
+            if obj is None:
+                continue
+            # 1) Direct properties
+            for i_name, r_name in (
+                ("Item", "ItemRev"),
+                ("Item", "ItemRevision"),
+                ("item", "itemRev"),
+                ("Item", "LatestItemRevision"),
+            ):
+                if hasattr(obj, i_name) and hasattr(obj, r_name):
+                    return getattr(obj, i_name), getattr(obj, r_name)
+            # 2) Array of outputs with named fields
+            try:
+                if hasattr(obj, "__len__") and len(obj) > 0:
+                    first = obj[0]
+                    for i_name, r_name in (("Item", "ItemRev"), ("Item", "ItemRevision")):
+                        if hasattr(first, i_name) and hasattr(first, r_name):
+                            return getattr(first, i_name), getattr(first, r_name)
+            except Exception:
+                pass
+
+        # As a pragmatic fallback, look for two modelobjects in the response whose types look like Item and ItemRevision
+        mo_pairs = []
+        for attr in dir(resp):
+            try:
+                val = getattr(resp, attr)
+                # Heuristic: collect strong model objects-like
+                if val is not None and hasattr(val, "GetType") and hasattr(val, "GetUid"):
+                    mo_pairs.append((attr, val))
+            except Exception:
+                continue
+        if len(mo_pairs) >= 2:
+            # Last resort: return whichever two appear to be Item/ItemRevision
+            mo_pairs.sort(key=lambda kv: kv[0].lower())
+            return mo_pairs[0][1], mo_pairs[1][1]
+
+        raise RuntimeError(
+            "GetItemFromId(itemId,'0') returned an unexpected shape; "
+            "inspect resp to map out Item/ItemRevision properties."
+        )
+
+    # If your site doesn’t expose GetItemFromId, fall back to the all‑in‑one path
+    return fetch_latest_via_get_item_and_related(conn, item_id)
+
+
+def fetch_latest_via_get_item_and_related(conn: Connection, item_id: str):
+    """
+    Resolve (Item, latest ItemRevision) in one shot using Strong.Core DataManagementService.GetItemAndRelatedObjects.
+    """
+    dm = _get_dm(conn)
+
+    if not hasattr(dm, "GetItemAndRelatedObjects"):
+        raise RuntimeError(
+            "DataManagementService does not expose GetItemAndRelatedObjects on this client. "
+            "Enable the 'fallback' path or wire GetItemFromId."
+        )
+
+    # Build the typed input using the same namespace as DM service
+    ns = DMServiceType.__module__  # e.g., Teamcenter.Services.Strong.Core._2008_06
+    # The input type is typically named GetItemAndRelatedObjectsInput in the same namespace
+    # We resolve it reflectively to avoid spelling/version mismatches.
+    import System  # type: ignore
+    inp_type = None
+    for asm in System.AppDomain.CurrentDomain.GetAssemblies():
+        try:
+            t = asm.GetType(f"{ns}.GetItemAndRelatedObjectsInput")
+            if t is not None:
+                inp_type = t
+                break
+        except Exception:
+            continue
+    if inp_type is None:
+        raise RuntimeError(f"Could not resolve {ns}.GetItemAndRelatedObjectsInput type.")
+
+    # Create and populate input; common properties are ItemId and RevId.
+    inp = inp_type()
+    if hasattr(inp, "ItemId"):
+        setattr(inp, "ItemId", item_id)
+    else:
+        raise RuntimeError("GetItemAndRelatedObjectsInput lacks ItemId property on this client.")
+    if hasattr(inp, "RevId"):
+        setattr(inp, "RevId", "0")  # '0' means latest revision in standard TC services
+    else:
+        # Some templates use RevisionId or similar
+        for alt in ("RevisionId", "Rev", "ItemRevisionId"):
+            if hasattr(inp, alt):
+                setattr(inp, alt, "0")
+                break
+        else:
+            raise RuntimeError("No RevId-like property found to request 'latest' revision.")
+
+    # Optional: request flags (site templates vary). Safe to attempt common flags.
+    for flag_name in ("RequestItem", "RequestItemRevision"):
+        if hasattr(inp, flag_name):
+            setattr(inp, flag_name, True)
+
+    # Call service
+    res = dm.GetItemAndRelatedObjects(System.Array[System.Object]([inp]))
+
+    # Extract the pair from the response structure (typical: res.Output[0].Item / ItemRev)
+    out = getattr(res, "Output", None)
+    if out is not None and len(out) > 0:
+        first = out[0]
+        for i_name, r_name in (("Item", "ItemRev"), ("Item", "ItemRevision")):
+            if hasattr(first, i_name) and hasattr(first, r_name):
+                return getattr(first, i_name), getattr(first, r_name)
+
+    raise RuntimeError(
+        "Could not locate (Item, ItemRevision) in GetItemAndRelatedObjects response; "
+        "dump res.Output to see property names for your template."
+    )
+
+def find_pdf_named_references(item_rev) -> List[object]:
+    candidates: List[object] = []
+    for relation_prop in ["IMAN_rendering", "IMAN_reference", "fnd0Drawings"]:
+        try:
+            prop = item_rev.GetPropertyObject(relation_prop)
+            if prop is None:
+                continue
+            arr = prop.GetModelObjectArrayValue()
+            if arr:
+                for mo in arr:
+                    if mo is not None:
+                        candidates.append(mo)
+        except Exception:
+            continue
+
+    pdf_refs: List[object] = []
+    for mo in candidates:
+        try:
+            name_prop = mo.GetPropertyObject("original_file_name")
+            if name_prop:
+                try:
+                    fname = name_prop.GetStringValue()
+                    if isinstance(fname, str) and fname.lower().endswith(".pdf"):
+                        pdf_refs.append(mo)
+                        continue
+                except Exception:
+                    pass
+
+            try:
+                ref_prop = mo.GetPropertyObject("IMAN_file")
+                if ref_prop:
+                    files = ref_prop.GetModelObjectArrayValue()
+                    for f in files:
+                        try:
+                            oname = f.GetPropertyObject("original_file_name").GetStringValue()
+                            if isinstance(oname, str) and oname.lower().endswith(".pdf"):
+                                pdf_refs.append(f)
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+        except Exception:
+            continue
+
+    # Deduplicate by UID
+    seen: set[str] = set()
+    uniq: List[object] = []
+    for f in pdf_refs:
+        try:
+            uid = f.GetUid()
+        except Exception:
+            uid = None
+        if uid and uid not in seen:
+            seen.add(uid)
+            uniq.append(f)
+    return uniq
+
+
+def download_named_reference_to(conn: Connection, ref_obj, dest_path: Path) -> Path:
+    fmu = FileManagementUtility(conn)
+    fmu.GetFileToLocation(ref_obj, str(dest_path), None, None)
+    return dest_path
+
+
+def print_available_core_services():
+    import System
+    svc_types = []
+    for asm in System.AppDomain.CurrentDomain.GetAssemblies():
+        try:
+            for t in asm.GetTypes():
+                fn = t.FullName or ""
+                if fn.startswith("Teamcenter.Services.") and fn.endswith("Service"):
+                    svc_types.append(fn)
+        except Exception:
+            continue
+    svc_types = sorted(set(svc_types))
+    print("\n".join(svc_types))
+
+
+
+
+
+OLD START
 
 # You may need additional namespaces for credentials, object property policy, etc.
 
