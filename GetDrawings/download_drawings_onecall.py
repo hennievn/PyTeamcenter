@@ -48,7 +48,9 @@ from System import Array, String  # type: ignore
 # Core SOA client & common
 from Teamcenter.Soa import SoaConstants  # type: ignore
 from Teamcenter.Soa.Client import Connection  # type: ignore
-from Teamcenter.Soa.Client import DefaultExceptionHandler, ResponseExceptionHandler  # type: ignore
+# from Teamcenter.Soa.Client import DefaultExceptionHandler ResponseExceptionHandler  # type: ignore
+# --- Imports (fixed) ---
+from Teamcenter.Soa.Client import Connection, DefaultExceptionHandler  # ✅ only these
 from Teamcenter.Soa.Client import FileManagementUtility  # type: ignore
 from Teamcenter.Soa.Common import ObjectPropertyPolicy, PolicyType, PolicyProperty  # type: ignore
 
@@ -139,7 +141,10 @@ def connect_and_login(cfg: TcLogin) -> Connection:
     conn = Connection(cfg.host, cfg.service, cfg.environment, proto)
 
     # Exception handler is required by the client; defaults are fine for scripts
-    conn.SetExceptionHandler(ResponseExceptionHandler(DefaultExceptionHandler()))
+    # conn.SetExceptionHandler(ResponseExceptionHandler(DefaultExceptionHandler()))
+    # ... construct your Connection `conn` with the proper constructor/URL/binding ...
+# --- Attach handler (fixed) ---
+    conn.ExceptionHandler = DefaultExceptionHandler()
 
     # Optional app tagging (shows up server-side in request envelope)
     conn.SetApplicationName("download_drawings_onecall.py")
