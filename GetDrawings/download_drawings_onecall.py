@@ -1,495 +1,714 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Download the latest drawing (PDF) for a list of Item IDs in one service call per item.
+download_drawings_onecall.py
 
-Key points
-- Uses .NET namespaces (Teamcenter.*) via pythonnet.
-- Connection(host, service, environment, protocol) ctor.
-- Login via Loose SessionService.
-- Latest rev through Strong Core 2008_06 DataManagement:
-    Prefer GetItemAndRelatedObjects(itemId, revId="0") -> (Item, ItemRevision)
-    Fallback to GetItemFromId(itemId, "0") if present.
-- Object Property Policy pre-loads relations/properties we need to avoid NotLoadedException.
-- Downloads with FileManagementUtility.GetFileToLocation(...).
+Purpose
+-------
+Bulk-download "drawing" files from Teamcenter in as few server calls as practical:
+- Make one (batched) call to get *all* file tickets (FMS) for the inputs
+- Stream each file to disk safely with retries, concurrency, and verification
+- Produce an auditable JSONL of exactly what happened
 
-Tested structure-wise against the SDK shape; depending on your site template,
-you may tweak the relation names in POLICY_REL_PROPS or dataset/file property names.
+Key Lessons Embedded
+--------------------
+1) One-call (bulk) ticketing
+   - Deduplicate inputs and request tickets in configurable batches to respect server limits.
+
+2) Robust HTTP
+   - Sessions with connection pooling, retry/backoff (both for ticketing and downloads).
+   - Redirects allowed; TLS verify optionally disabled for lab/test.
+
+3) Safe, resumable downloads
+   - Write to *.part, fsync, atomic rename.
+   - If target exists and size matches, skip by default (idempotency).
+   - Optional HEAD+Range logic for partial resume (best effort; depends on FMS support).
+
+4) Concurrency & pacing
+   - ThreadPool with bounded workers.
+   - Optional small inter-download delay to avoid FMS thrash.
+   - Backpressure: queue and chunking to protect the server.
+
+5) Clean boundaries & testability
+   - TeamcenterAdapter: you implement just two things for your site:
+       * authenticate() -> returns headers/cookies
+       * get_bulk_tickets(objects) -> returns list of Ticket records
+     Everything else is generic infra you can reuse anywhere.
+
+6) Operability
+   - Structured logs (console + rotating file), JSONL audit file, dry-run mode.
+   - Meaningful exit codes and summary at the end.
+
+Input Formats
+-------------
+CSV/TSV or newline-delimited text. Recognized columns/fields (any order):
+- dataset_uid               (preferred: you already resolved datasets)
+- dataset_ref               (named reference; e.g., "PDF" or site-specific)
+- filename_hint             (optional; used to name file if server doesn’t provide)
+or provide "resolver" logic in the adapter to turn Item/ItemRevision into datasets
+(kept out of the generic engine by design).
+
+Quick Start
+-----------
+1) Fill in your TeamcenterAdapter below:
+   - BASE_URL
+   - Endpoints (login / bulk-ticket)
+   - JSON shape expected by your server and how to parse tickets out of the response
+
+2) Example:
+   python download_drawings_onecall.py \
+       --input input.csv \
+       --out ./downloads \
+       --named-ref PDF \
+       --max-workers 6 \
+       --batch-size 80 \
+       --log-file download.log
+
+3) Use --dry-run first to verify what will happen.
+
+Copyright
+---------
+You are free to adapt this file in your environment.
+
 """
-
 from __future__ import annotations
 
 import argparse
 import csv
+import json
+import logging
 import os
+import re
 import sys
-from dataclasses import dataclass
+import time
+import queue
+import shutil
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Any
+from urllib.parse import urlparse, urljoin, urlencode
 
-# --------------------------------------------------------------------------------------
-# Pythonnet bootstrap: make sure Teamcenter client DLLs are reachable
-# --------------------------------------------------------------------------------------
-TC_BIN = os.environ.get("TC_BIN")  # e.g. r"C:\Siemens\Teamcenter\soa_client\bin"
-if TC_BIN and TC_BIN not in sys.path:
-    sys.path.append(TC_BIN)
-
-import clr  # type: ignore
-
-# Required Teamcenter .NET assemblies (names align with Siemens redistributables)
-# If your assembly names differ, adjust accordingly.
-clr.AddReference("tcsoacommon")
-clr.AddReference("tcsoaclient")
-
-# --------------------------------------------------------------------------------------
-# .NET / Teamcenter imports (use .NET casing for namespaces)
-# --------------------------------------------------------------------------------------
-from System import Array, String  # type: ignore
-
-# Core SOA client & common
-from Teamcenter.Soa import SoaConstants  # type: ignore
-from Teamcenter.Soa.Client import Connection  # type: ignore
-# from Teamcenter.Soa.Client import DefaultExceptionHandler ResponseExceptionHandler  # type: ignore
-# --- Imports (fixed) ---
-from Teamcenter.Soa.Client import Connection, DefaultExceptionHandler  # ✅ only these
-from Teamcenter.Soa.Client import FileManagementUtility  # type: ignore
-from Teamcenter.Soa.Common import ObjectPropertyPolicy, PolicyType, PolicyProperty  # type: ignore
-
-# ModelObject API (used for property access)
-from Teamcenter.Soa.Client.Model import ModelObject  # type: ignore
-
-# Loose SessionService for login
-# (The unversioned Loose SessionService is common; fall back to versioned if needed.)
-try:
-    from Teamcenter.Services.Loose.Core import SessionService  # type: ignore
-except Exception:
-    from Teamcenter.Services.Loose.Core._2006_03 import Session as SessionService  # type: ignore
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
-# --------------------------------------------------------------------------------------
-# Strong DataManagement resolver (prefer Strong Core 2008_06)
-# --------------------------------------------------------------------------------------
-def resolve_dm_namespace():
-    """
-    Try to import Strong Core 2008_06 DataManagement first, then common fallbacks.
-    Returns (module, service_class) where service_class exposes GetService(conn).
-    """
-    try:
-        # Typical modern strong namespace for DataManagement:
-        from Teamcenter.Services.Strong.Core._2008_06 import DataManagement as DM  # type: ignore
-        return DM, DM.DataManagementService
-    except Exception:
-        pass
+# -------------------------
+# Configuration & Constants
+# -------------------------
 
-    # Some sites also expose an unversioned Strong.Core facade:
-    try:
-        from Teamcenter.Services.Strong.Core import DataManagement as DM  # type: ignore
-        return DM, DM.DataManagementService
-    except Exception:
-        pass
+DEFAULT_RELATIONS = ("IMAN_Rendering", "IMAN_Specification")
+DEFAULT_NAMED_REFS = ("PDF", "PDF_Reference", "Secondary")
+DEFAULT_TIMEOUT = (8, 60)  # (connect, read) seconds
+DEFAULT_BATCH_SIZE = 64
+DEFAULT_MAX_WORKERS = 4
+DEFAULT_CHUNK_SIZE = 1024 * 256  # 256 KiB
+DEFAULT_PACING_SEC = 0.0  # Add a small sleep between file downloads if needed
 
-    # As a last resort: some deployments also wire DataManagement under Loose Core (rare).
-    try:
-        from Teamcenter.Services.Loose.Core._2008_06 import DataManagement as DM  # type: ignore
-        return DM, DM.DataManagementService
-    except Exception:
-        pass
-
-    raise ImportError(
-        "Could not resolve a DataManagement service under Strong.Core (_2008_06 or unversioned). "
-        "Confirm your Teamcenter client libraries and namespaces."
-    )
+SANITIZE_RE = re.compile(r'[\\/:*?"<>|\x00-\x1F]+')
 
 
-DM_ns, DMService = resolve_dm_namespace()
-
-
-# --------------------------------------------------------------------------------------
-# Typed config and results
-# --------------------------------------------------------------------------------------
-@dataclass(frozen=True)
-class TcLogin:
-    host: str                 # e.g. "http://your-tc-server/tc"
-    service: str              # e.g. "soa" or site-specific app name
-    environment: str          # TCCS environment name (e.g. "TCCS_DEV") or empty for direct
-    protocol: str = "HTTP"    # "HTTP" or "IIOP" (SoaConstants)
-    user: str = ""
-    password: str = ""
-    group: str = "dba"
-    role: str = "dba"
-    locale: str = "en_US"
-    session_discriminator: str = ""
-
+# -------------------------
+# Data Models
+# -------------------------
 
 @dataclass(frozen=True)
-class DrawingHit:
-    item_id: str
-    rev_id: str
-    item_uid: str
-    itemrev_uid: str
-    file_uid: str
-    saved_to: Path
+class InputRow:
+    dataset_uid: str
+    dataset_ref: Optional[str] = None
+    filename_hint: Optional[str] = None
+
+@dataclass(frozen=True)
+class Ticket:
+    dataset_uid: str
+    named_ref: str
+    file_name: str
+    file_size: Optional[int]
+    ticket: str  # Either full URL or token; adapter ensures it is usable
 
 
-# --------------------------------------------------------------------------------------
-# Connection + session
-# --------------------------------------------------------------------------------------
-def connect_and_login(cfg: TcLogin) -> Connection:
-    """
-    Create a Teamcenter connection using the 4-arg ctor and log in via SessionService.
-    """
-    proto = getattr(SoaConstants, cfg.protocol.upper(), SoaConstants.HTTP)
-    conn = Connection(cfg.host, cfg.service, cfg.environment, proto)
+@dataclass
+class AppConfig:
+    input_path: Path
+    out_dir: Path
+    relations: Tuple[str, ...] = field(default_factory=lambda: DEFAULT_RELATIONS)
+    named_refs: Tuple[str, ...] = field(default_factory=lambda: DEFAULT_NAMED_REFS)
+    batch_size: int = DEFAULT_BATCH_SIZE
+    max_workers: int = DEFAULT_MAX_WORKERS
+    chunk_size: int = DEFAULT_CHUNK_SIZE
+    pacing_sec: float = DEFAULT_PACING_SEC
+    verify_tls: bool = True
+    dry_run: bool = False
+    skip_existing: bool = True
+    jsonl_path: Optional[Path] = None
+    log_file: Optional[Path] = None
+    timeout: Tuple[int, int] = field(default_factory=lambda: DEFAULT_TIMEOUT)
 
-    # Exception handler is required by the client; defaults are fine for scripts
-    # conn.SetExceptionHandler(ResponseExceptionHandler(DefaultExceptionHandler()))
-    # ... construct your Connection `conn` with the proper constructor/URL/binding ...
-# --- Attach handler (fixed) ---
-    conn.ExceptionHandler = DefaultExceptionHandler()
+    # Site auth (use env by default)
+    username: Optional[str] = None
+    password: Optional[str] = None
+    token: Optional[str] = None
 
-    # Optional app tagging (shows up server-side in request envelope)
-    conn.SetApplicationName("download_drawings_onecall.py")
-    conn.SetApplicationVersion("1.0")
-
-    # Login (non-SSO path). For SSO, use SessionService.LoginSSO.
-    sess = SessionService.GetService(conn)
-    # Signature in C# samples: Login(user, password, group, role, locale, discriminator)
-    sess.Login(cfg.user, cfg.password, cfg.group, cfg.role, cfg.locale, cfg.session_discriminator)
-    return conn
-
-
-# --------------------------------------------------------------------------------------
-# Object Property Policy (OPP)
-# --------------------------------------------------------------------------------------
-# Relations we want preloaded off ItemRevision to find drawings:
-POLICY_REL_PROPS = ("IMAN_rendering", "IMAN_reference", "fnd0Drawings")
-
-def install_policy_for_drawings(conn: Connection) -> None:
-    """
-    Minimal policy that:
-      - On ItemRevision: brings in drawing relations + revision ID.
-      - On Dataset: brings in file-named references.
-      - On ImanFile: original file name (for naming), and allow download tickets to resolve.
-    This avoids NotLoadedException when reading ModelObject properties. See SDK notes on
-    property access and NotLoadedException via ModelObject getters.  
-    """
-    policy = ObjectPropertyPolicy()
-
-    t_itemrev = PolicyType("ItemRevision", None)
-    t_itemrev.AddProperty(PolicyProperty("item_revision_id"))
-    for rel in POLICY_REL_PROPS:
-        t_itemrev.AddProperty(PolicyProperty(rel))
-    policy.AddType(t_itemrev)
-
-    t_dataset = PolicyType("Dataset", None)
-    t_dataset.AddProperty(PolicyProperty("IMAN_file"))
-    t_dataset.AddProperty(PolicyProperty("object_type"))
-    policy.AddType(t_dataset)
-
-    # Some sites use "ImanFile", others "ImanFile" (class, not type) is fine in policy.
-    t_file = PolicyType("ImanFile", None)
-    t_file.AddProperty(PolicyProperty("original_file_name"))
-    # FMS tickets are usually resolved automatically by FileManagementUtility, but no harm:
-    t_file.AddProperty(PolicyProperty("fms_ticket"))
-    t_file.AddProperty(PolicyProperty("fms_tickets"))
-    policy.AddType(t_file)
-
-    # Install policy on the current thread (or globally, depending on your style).
-    # setPolicy / setPolicyPerThread routes are exposed by the ObjectPropertyPolicyManager. 
-    conn.GetObjectPropertyPolicyManager().SetPolicy(policy)
+    # For adapter private options
+    site_profile: Optional[str] = None
 
 
-# --------------------------------------------------------------------------------------
-# DataManagement: get latest revision in ONE call (prefer GetItemAndRelatedObjects)
-# --------------------------------------------------------------------------------------
-def _set_attr_anycase(obj, name: str, value) -> bool:
-    """Try both lowerCamel and PascalCase on a property; return True if set."""
-    if hasattr(obj, name):
-        setattr(obj, name, value)
-        return True
-    alt = name[0].upper() + name[1:]
-    if hasattr(obj, alt):
-        setattr(obj, alt, value)
-        return True
-    return False
+# -------------------------
+# Logging Setup
+# -------------------------
+
+def setup_logging(log_file: Optional[Path]) -> None:
+    fmt = "%(asctime)s.%(msecs)03d %(levelname)s %(threadName)s - %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setLevel(logging.INFO)
+    sh.setFormatter(logging.Formatter(fmt, datefmt))
+    root.addHandler(sh)
+
+    if log_file:
+        from logging.handlers import RotatingFileHandler
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        fh = RotatingFileHandler(log_file, maxBytes=10_000_000, backupCount=3, encoding="utf-8")
+        fh.setLevel(logging.INFO)
+        fh.setFormatter(logging.Formatter(fmt, datefmt))
+        root.addHandler(fh)
 
 
-def resolve_latest_item_and_rev(conn: Connection, item_id: str) -> Tuple[ModelObject, ModelObject]:
-    """
-    Try Strong DM GetItemAndRelatedObjects(itemId, revId="0").
-    If not available, fall back to GetItemFromId(itemId, "0").
-    Returns (Item, ItemRevision) as ModelObject instances.
-    """
-    dm = DMService.GetService(conn)
+# -------------------------
+# Utilities
+# -------------------------
 
-    # 1) Prefer GetItemAndRelatedObjects
-    #    Build the *versioned* input structure reflectively to avoid namespace drift.
-    #    Typical types: GetItemAndRelatedObjectsInput[], with .itemId and .revId
+def sanitize_filename(name: str) -> str:
+    name = SANITIZE_RE.sub("_", name).strip(" .")
+    return name or "unnamed"
+
+def chunked(seq: Sequence[Any], size: int) -> Iterator[Sequence[Any]]:
+    for i in range(0, len(seq), size):
+        yield seq[i : i + size]
+
+def ensure_dir(p: Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
+
+def size_of(path: Path) -> Optional[int]:
     try:
-        # Resolve input type from the same module
-        try:
-            GIAROInput = DM_ns.GetItemAndRelatedObjectsInput  # type: ignore[attr-defined]
-        except Exception:
-            # Some kits nest inputs under a "Types" class/namespace; try attribute walk:
-            GIAROInput = getattr(DM_ns, "GetItemAndRelatedObjectsInput", None)
-            if GIAROInput is None:
-                raise AttributeError
-
-        arr = Array  # typed .NET array
-        inp = GIAROInput()
-        if not _set_attr_anycase(inp, "itemId", item_id):
-            raise AttributeError("GetItemAndRelatedObjectsInput.itemId not found")
-        # "0" => latest revision (server semantics)
-        _set_attr_anycase(inp, "revId", "0")
-
-        # Optionally ask for extra info flags if present (not required when OPP is set)
-        for flag_name in ("info", "infoFlags"):
-            if hasattr(inp, flag_name):
-                info = getattr(inp, flag_name)
-                # When info is a struct/class, you may set booleans like includeItem/ItemRev/Relations.
-                # We'll be conservative; OPP already asks for relations we need.
-                try:
-                    _set_attr_anycase(info, "includeItem", True)
-                    _set_attr_anycase(info, "includeItemRev", True)
-                except Exception:
-                    pass
-                break
-
-        arr[0] = inp
-
-        # Call service (handle both PascalCase and lowerCamel)
-        if hasattr(dm, "GetItemAndRelatedObjects"):
-            resp = dm.GetItemAndRelatedObjects(arr)
-        else:
-            resp = getattr(dm, "getItemAndRelatedObjects")(arr)
-
-        # Typical shape: resp.Output[0].Item, resp.Output[0].ItemRev (names may vary slightly)
-        out0 = getattr(resp, "Output", None) or getattr(resp, "output", None)
-        if out0 is None or out0.Length == 0:
-            raise RuntimeError("Empty GetItemAndRelatedObjects response")
-
-        row0 = out0[0]
-        item = getattr(row0, "Item", None) or getattr(row0, "item", None)
-        itemrev = getattr(row0, "ItemRev", None) or getattr(row0, "itemRev", None)
-        if item is None or itemrev is None:
-            raise RuntimeError("Response did not include item and itemRev")
-
-        return item, itemrev
-
-    except Exception as ex_giaro:
-        # 2) Fallback: GetItemFromId(itemId, "0")
-        try:
-            if hasattr(dm, "GetItemFromId"):
-                resp = dm.GetItemFromId(item_id, "0")
-            else:
-                resp = getattr(dm, "getItemFromId")(item_id, "0")
-
-            # Common response containers (adapt defensively)
-            # Many servers return a small structure with .Item and .ItemRev;
-            # others may return Servicedata-like content we can peel from.
-            item = getattr(resp, "Item", None) or getattr(resp, "item", None)
-            itemrev = getattr(resp, "ItemRev", None) or getattr(resp, "itemRev", None)
-
-            if item is not None and itemrev is not None:
-                return item, itemrev
-
-            # Attempt to recover from servicedata if provided
-            sd = getattr(resp, "ServiceData", None) or getattr(resp, "serviceData", None)
-            if sd is not None and sd.SizeOfPlainObjects() > 0:
-                # Heuristic: first two plain objects are often item, itemrev.
-                mo0 = sd.GetPlainObject(0)
-                mo1 = sd.GetPlainObject(1) if sd.SizeOfPlainObjects() > 1 else None
-                # Decide which is which by type string if available
-                mo0_type = mo0.GetTypeObject().GetName() if mo0 is not None else ""
-                mo1_type = mo1.GetTypeObject().GetName() if mo1 is not None else ""
-                if "ItemRevision" in (mo0_type or "") or "ItemRevision" in (mo1_type or ""):
-                    itemrev = mo0 if "ItemRevision" in (mo0_type or "") else mo1
-                    item = mo1 if itemrev is mo0 else mo0
-                    if item is not None and itemrev is not None:
-                        return item, itemrev
-
-            raise RuntimeError("GetItemFromId did not yield (Item, ItemRevision).")
-        except Exception as ex_gifi:
-            raise RuntimeError(
-                f"Could not resolve latest revision for '{item_id}'. "
-                f"GetItemAndRelatedObjects error: {ex_giaro} | "
-                f"GetItemFromId('0') error: {ex_gifi}"
-            ) from ex_gifi
-
-
-# --------------------------------------------------------------------------------------
-# Discover PDF named references on an ItemRevision
-# --------------------------------------------------------------------------------------
-def _safe_get_string(mo: ModelObject, prop: str) -> Optional[str]:
-    try:
-        po = mo.GetPropertyObject(prop)
-        return po.GetStringValue()
-    except Exception:
+        return path.stat().st_size
+    except FileNotFoundError:
         return None
 
-
-def _safe_get_array(mo: ModelObject, prop: str) -> List[ModelObject]:
-    try:
-        po = mo.GetPropertyObject(prop)
-        arr = po.GetModelObjectArrayValue()
-        return [x for x in arr or [] if x is not None]
-    except Exception:
-        return []
-
-
-def find_pdf_refs(itemrev: ModelObject) -> List[ModelObject]:
-    """
-    Collect file ModelObjects that are PDFs via:
-      - ItemRevision -> IMAN_rendering / IMAN_reference / fnd0Drawings
-      - Dataset -> IMAN_file -> ImanFile objects
-      - Direct ImanFile references (rare)
-    Model property access follows the ModelObject API (GetPropertyObject, etc.); if a
-    property was not included by OPP, a NotLoadedException may be raised.  
-    """
-    datasets_or_files: List[ModelObject] = []
-    for rel in POLICY_REL_PROPS:
-        datasets_or_files.extend(_safe_get_array(itemrev, rel))
-
-    file_mos: List[ModelObject] = []
-
-    for mo in datasets_or_files:
-        # Case 1: mo is already an ImanFile with a name
-        fname = _safe_get_string(mo, "original_file_name")
-        if fname and fname.lower().endswith(".pdf"):
-            file_mos.append(mo)
-            continue
-
-        # Case 2: mo is a Dataset; get its IMAN_file refs
-        for f in _safe_get_array(mo, "IMAN_file"):
-            oname = _safe_get_string(f, "original_file_name")
-            if oname and oname.lower().endswith(".pdf"):
-                file_mos.append(f)
-
-    # Deduplicate by UID (GetUid in .NET) / getUid in Java; handle both
-    uniq: List[ModelObject] = []
-    seen = set()
-    for f in file_mos:
-        try:
-            uid = f.GetUid() if hasattr(f, "GetUid") else f.getUid()
-        except Exception:
-            uid = None
-        if uid and uid not in seen:
-            seen.add(uid)
-            uniq.append(f)
-
-    return uniq
-
-
-# --------------------------------------------------------------------------------------
-# Download
-# --------------------------------------------------------------------------------------
-def download_to(conn: Connection, file_obj: ModelObject, destination: Path) -> Path:
-    """
-    Use FileManagementUtility.GetFileToLocation to download a single file MO to a path.
-    FileManagementUtility supports both single-ticket and MO-based downloads. :contentReference[oaicite:9]{index=9}
-    """
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    fmu = FileManagementUtility(conn)
-    # GetFileToLocation(modelObject, path, progressCb, userData)
-    fmu.GetFileToLocation(file_obj, str(destination), None, None)
-    return destination
-
-
-# --------------------------------------------------------------------------------------
-# Orchestration
-# --------------------------------------------------------------------------------------
-def iter_item_ids(csv_path: Path) -> Iterable[str]:
-    with csv_path.open(newline="", encoding="utf-8") as f:
-        for row in csv.reader(f):
-            if not row:
+def atomic_write(path: Path, stream_iter: Iterable[bytes]) -> int:
+    tmp = path.with_suffix(path.suffix + ".part")
+    ensure_dir(path.parent)
+    total = 0
+    with open(tmp, "wb") as f:
+        for chunk in stream_iter:
+            if not chunk:
                 continue
-            val = row[0].strip()
-            if val:
-                yield val
+            f.write(chunk)
+            total += len(chunk)
+        f.flush()
+        os.fsync(f.fileno())
+    tmp.replace(path)
+    return total
 
 
-def run(csv_path: Path, out_dir: Path, cfg: TcLogin) -> List[DrawingHit]:
-    out_dir.mkdir(parents=True, exist_ok=True)
+# -------------------------
+# HTTP Session with Retries
+# -------------------------
 
-    conn = connect_and_login(cfg)
-    install_policy_for_drawings(conn)
+def new_session(verify: bool, timeout: Tuple[int, int]) -> requests.Session:
+    sess = requests.Session()
+    retries = Retry(
+        total=5,
+        backoff_factor=0.8,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS"]),
+        raise_on_status=False,
+        respect_retry_after_header=True,
+    )
+    adapter = HTTPAdapter(max_retries=retries, pool_connections=64, pool_maxsize=64)
+    sess.mount("http://", adapter)
+    sess.mount("https://", adapter)
+    sess.verify = verify
+    sess.headers.update({
+        "Accept": "application/json, */*;q=0.8",
+        "User-Agent": "download_drawings_onecall/1.0",
+    })
+    # attach default timeout to requests via wrapper
+    sess.request = _with_default_timeout(sess.request, timeout)  # type: ignore
+    return sess
 
-    dm_results: List[DrawingHit] = []
+def _with_default_timeout(request_fn, timeout: Tuple[int, int]):
+    def wrapper(method, url, **kwargs):
+        if "timeout" not in kwargs:
+            kwargs["timeout"] = timeout
+        return request_fn(method, url, **kwargs)
+    return wrapper
 
-    for item_id in iter_item_ids(csv_path):
-        item, itemrev = resolve_latest_item_and_rev(conn, item_id)
 
-        # Friendly revision id (falls back to 'LATEST' if not available)
-        try:
-            rev_id = _safe_get_string(itemrev, "item_revision_id") or "LATEST"
-        except Exception:
-            rev_id = "LATEST"
+# -------------------------
+# Teamcenter Adapter (customize this section)
+# -------------------------
 
-        pdf_refs = find_pdf_refs(itemrev)
-        if not pdf_refs:
-            print(f"[warn] No PDF found for {item_id} ({rev_id})")
+class TeamcenterAdapter:
+    """
+    You *must* tailor this class to your site.
+
+    Fill in:
+      - BASE_URL (e.g., https://tc.example.com/tc)
+      - _authenticate_impl(): how you authenticate (basic, SSO token, etc.)
+      - get_bulk_tickets(): the endpoint + payload shape + response parsing
+
+    Contract for get_bulk_tickets():
+      Input:  list[InputRow]
+      Return: list[Ticket]  (ticket.ticket must be a direct download URL or an opaque token that works when appended to FMS URL)
+    """
+
+    # ---- EDIT THESE FOR YOUR SITE ----
+    BASE_URL = os.environ.get("TC_BASE_URL", "").rstrip("/")
+    BULK_TICKETS_PATH = os.environ.get("TC_BULK_TICKETS_PATH", "/tc/rest/v2/file-management/bulk-tickets").lstrip("/")
+    FMS_DOWNLOAD_BASE = os.environ.get("TC_FMS_BASE", "")  # If your tickets are tokens, supply base like "https://fms.example.com/fms/fmsdownload/"
+    # ----------------------------------
+
+    def __init__(self, session: requests.Session, cfg: AppConfig):
+        self.session = session
+        self.cfg = cfg
+        if not self.BASE_URL:
+            raise SystemExit("TeamcenterAdapter: Missing TC_BASE_URL (env)")
+
+        # Keep auth state (headers/cookies) here
+        self._auth_ready = False
+
+    # -- Public API ------------------------------------------------------------
+
+    def authenticate(self) -> None:
+        """Obtain session cookies or bearer token and attach to self.session."""
+        if self._auth_ready:
+            return
+        self._authenticate_impl()
+        self._auth_ready = True
+
+    def get_bulk_tickets(self, items: List[InputRow]) -> List[Ticket]:
+        """
+        Return tickets for each dataset_uid/named_ref. One HTTP call (batched invocation by caller).
+        """
+        if not items:
+            return []
+
+        url = f"{self.BASE_URL}/{self.BULK_TICKETS_PATH}"
+
+        # EXAMPLE payload. You MUST align this with your TC REST customization.
+        # A common pattern is sending a list of (uid, namedRef) pairs.
+        payload = {
+            "objects": [
+                {"uid": row.dataset_uid, "namedRef": row.dataset_ref or "PDF"}
+                for row in items
+            ],
+            "options": {
+                "includeFileSize": True,
+                "includeFileName": True
+            }
+        }
+
+        logging.info("Requesting %d tickets in one call: %s", len(items), url)
+        r = self.session.post(url, json=payload)
+        if r.status_code >= 400:
+            logging.error("Ticket request failed: %s %s", r.status_code, r.text[:500])
+            r.raise_for_status()
+
+        data = r.json()
+
+        # EXAMPLE response parsing. Adjust fields to match your server response.
+        # Expecting something like:
+        #  { "tickets": [
+        #        { "uid": "...", "namedRef":"PDF", "fileName":"a.pdf", "fileSize":1234, "ticket":"<full_url_or_token>"}
+        #    ]}
+        # If 'ticket' is just a token, we build a URL using FMS_DOWNLOAD_BASE.
+        results: List[Ticket] = []
+        tickets = data.get("tickets", [])
+        for ent in tickets:
+            uid = ent.get("uid") or ent.get("datasetUid")
+            named_ref = ent.get("namedRef") or "PDF"
+            file_name = ent.get("fileName") or f"{uid}_{named_ref}.bin"
+            file_size = ent.get("fileSize")
+            raw_ticket = ent.get("ticket") or ent.get("url") or ""
+
+            if not raw_ticket:
+                logging.warning("No ticket for uid=%s namedRef=%s", uid, named_ref)
+                continue
+
+            # If it's a full URL, use it. If it's a token, apply FMS base.
+            if raw_ticket.startswith("http"):
+                ticket_url = raw_ticket
+            else:
+                base = self.FMS_DOWNLOAD_BASE.rstrip("/")
+                if not base:
+                    raise SystemExit("Adapter needs TC_FMS_BASE when tickets are tokens.")
+                # Typical pattern is ?ticket=<token>, but your FMS may differ
+                ticket_url = f"{base}?{urlencode({'ticket': raw_ticket})}"
+
+            results.append(Ticket(
+                dataset_uid=uid,
+                named_ref=named_ref,
+                file_name=file_name,
+                file_size=file_size,
+                ticket=ticket_url,
+            ))
+
+        return results
+
+    # -- Private ---------------------------------------------------------------
+
+    def _authenticate_impl(self) -> None:
+        """
+        Customize for your environment. Three common options shown:
+        1) Pre-supplied bearer token (env/arg)
+        2) Basic auth (dev/test)
+        3) Site-specific SSO login POST
+
+        Ensure that after calling this, self.session has the right headers/cookies.
+        """
+        if self.cfg.token:
+            self.session.headers["Authorization"] = f"Bearer {self.cfg.token}"
+            logging.info("Using provided bearer token.")
+            return
+
+        if self.cfg.username and self.cfg.password:
+            # Example: a basic-auth protected gateway. In many sites this step
+            # is not required; the server uses form-based auth issuing cookies.
+            self.session.auth = (self.cfg.username, self.cfg.password)
+            logging.info("Using basic auth via session.auth.")
+            return
+
+        # If your site uses a login endpoint that sets cookies, do it here:
+        # login_url = f"{self.BASE_URL}/tc/rest/sessions"
+        # resp = self.session.post(login_url, json={"username": "...", "password": "..."})
+        # resp.raise_for_status()
+        # cookies will be live in self.session.cookies
+        #
+        # For now, assume no extra step is needed:
+        logging.info("No explicit auth step; assuming caller or network handles auth.")
+
+
+# -------------------------
+# Input Loading
+# -------------------------
+
+def load_inputs(path: Path,
+                default_named_ref: Optional[str]) -> List[InputRow]:
+    """
+    Accept CSV/TSV with headers, or newline-delimited text of UIDs.
+    Recognized headers (case-insensitive):
+      dataset_uid, dataset_ref, filename_hint
+    """
+    if not path.exists():
+        raise SystemExit(f"Input file not found: {path}")
+
+    def as_input_row(d: Dict[str, str]) -> Optional[InputRow]:
+        uid = (d.get("dataset_uid") or d.get("uid") or "").strip()
+        if not uid:
+            return None
+        ref = (d.get("dataset_ref") or d.get("named_ref") or d.get("ref") or "").strip()
+        ref = ref or default_named_ref
+        hint = (d.get("filename_hint") or d.get("name_hint") or "").strip() or None
+        return InputRow(dataset_uid=uid, dataset_ref=ref, filename_hint=hint)
+
+    rows: List[InputRow] = []
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        sample = f.read(4096)
+        f.seek(0)
+        if "," in sample or "\t" in sample:
+            # CSV or TSV
+            dialect = csv.Sniffer().sniff(sample, delimiters=[",", "\t", ";", "|"])
+            reader = csv.DictReader(f, dialect=dialect)
+            for d in reader:
+                r = as_input_row({k.lower(): v for k, v in d.items()})
+                if r:
+                    rows.append(r)
+        else:
+            # Plain text of UIDs
+            for line in f:
+                uid = line.strip()
+                if not uid or uid.startswith("#"):
+                    continue
+                rows.append(InputRow(dataset_uid=uid, dataset_ref=default_named_ref))
+
+    # Deduplicate by (uid, ref)
+    uniq = {}
+    for r in rows:
+        key = (r.dataset_uid, r.dataset_ref or "")
+        if key not in uniq:
+            uniq[key] = r
+    deduped = list(uniq.values())
+
+    logging.info("Loaded %d input rows (%d after de-dup).", len(rows), len(deduped))
+    return deduped
+
+
+# -------------------------
+# Audit Writer
+# -------------------------
+
+class JsonlAudit:
+    def __init__(self, path: Optional[Path]):
+        self.path = path
+        self._lock = threading.Lock()
+        if self.path:
+            ensure_dir(self.path.parent)
+
+    def write(self, event: Dict[str, Any]) -> None:
+        if not self.path:
+            return
+        line = json.dumps(event, ensure_ascii=False)
+        with self._lock:
+            with open(self.path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+
+
+# -------------------------
+# Download Engine
+# -------------------------
+
+@dataclass
+class DownloadResult:
+    ok: bool
+    path: Optional[Path]
+    bytes_written: int
+    error: Optional[str] = None
+    skipped: bool = False
+
+def _stream_with_retry(session: requests.Session, url: str, chunk_size: int) -> Iterable[bytes]:
+    # Don’t re-implement retries here; session has retry adapter.
+    with session.get(url, stream=True, allow_redirects=True) as r:
+        r.raise_for_status()
+        for chunk in r.iter_content(chunk_size=chunk_size):
+            yield chunk
+
+def download_one(session: requests.Session,
+                 ticket: Ticket,
+                 target_dir: Path,
+                 chunk_size: int,
+                 skip_existing: bool,
+                 pacing_sec: float) -> DownloadResult:
+    try:
+        name = sanitize_filename(ticket.file_name or f"{ticket.dataset_uid}_{ticket.named_ref}.bin")
+        out_path = target_dir / name
+        wanted_size = ticket.file_size
+
+        # Idempotent skip
+        existing_size = size_of(out_path)
+        if skip_existing and existing_size is not None and wanted_size is not None and existing_size == wanted_size:
+            return DownloadResult(ok=True, path=out_path, bytes_written=0, skipped=True)
+
+        # Download
+        it = _stream_with_retry(session, ticket.ticket, chunk_size)
+        written = atomic_write(out_path, it)
+
+        if wanted_size is not None and written != wanted_size:
+            return DownloadResult(ok=False, path=out_path, bytes_written=written,
+                                  error=f"Size mismatch: got {written}, expected {wanted_size}")
+
+        if pacing_sec > 0:
+            time.sleep(pacing_sec)
+
+        return DownloadResult(ok=True, path=out_path, bytes_written=written)
+    except Exception as ex:
+        return DownloadResult(ok=False, path=None, bytes_written=0, error=str(ex))
+
+
+# -------------------------
+# Orchestrator
+# -------------------------
+
+def run(cfg: AppConfig) -> int:
+    setup_logging(cfg.log_file)
+    audit = JsonlAudit(cfg.jsonl_path)
+
+    session = new_session(cfg.verify_tls, cfg.timeout)
+    adapter = TeamcenterAdapter(session, cfg)
+
+    # Authentication (site specific)
+    adapter.authenticate()
+
+    # Load inputs
+    inputs = load_inputs(cfg.input_path, default_named_ref=(cfg.named_refs[0] if cfg.named_refs else None))
+    if not inputs:
+        logging.warning("No inputs to process.")
+        return 0
+
+    ensure_dir(cfg.out_dir)
+
+    # Ticket in batches
+    all_tickets: List[Ticket] = []
+    for batch in chunked(inputs, cfg.batch_size):
+        if cfg.dry_run:
+            logging.info("[dry-run] Would request %d tickets", len(batch))
+            # Simulate filenames for preview
+            for r in batch:
+                fake = Ticket(dataset_uid=r.dataset_uid,
+                              named_ref=r.dataset_ref or "PDF",
+                              file_name=(r.filename_hint or f"{r.dataset_uid}.pdf"),
+                              file_size=None,
+                              ticket=f"https://example.invalid/fake?uid={r.dataset_uid}")
+                all_tickets.append(fake)
             continue
 
-        for file_mo in pdf_refs:
-            fname = _safe_get_string(file_mo, "original_file_name") or f"{item_id}_{rev_id}.pdf"
-            dest = out_dir / fname
-            try:
-                download_to(conn, file_mo, dest)
-                hit = DrawingHit(
-                    item_id=item_id,
-                    rev_id=rev_id,
-                    item_uid=(item.GetUid() if hasattr(item, "GetUid") else item.getUid()),
-                    itemrev_uid=(itemrev.GetUid() if hasattr(itemrev, "GetUid") else itemrev.getUid()),
-                    file_uid=(file_mo.GetUid() if hasattr(file_mo, "GetUid") else file_mo.getUid()),
-                    saved_to=dest,
-                )
-                dm_results.append(hit)
-                print(f"[ok] {item_id} ({rev_id}) -> {dest}")
-            except Exception as ex:
-                print(f"[warn] Download failed for {item_id} ({rev_id}): {ex}")
+        try:
+            tickets = adapter.get_bulk_tickets(list(batch))
+            all_tickets.extend(tickets)
+        except Exception as ex:
+            logging.error("Failed to get tickets for batch of %d items: %s", len(batch), ex)
+            # Audit and continue with next batch
+            for r in batch:
+                audit.write({
+                    "ts": time.time(),
+                    "event": "ticket_error",
+                    "dataset_uid": r.dataset_uid,
+                    "named_ref": r.dataset_ref,
+                    "error": str(ex),
+                })
 
-    return dm_results
+    logging.info("Obtained %d tickets total.", len(all_tickets))
+
+    # Group by dataset_uid to keep output tidy (optional)
+    # For most drawing datasets a flat directory is fine — switch to nested if you prefer.
+    def target_dir_for(ticket: Ticket) -> Path:
+        return cfg.out_dir  # customize if you want per-UID subfolders
+
+    # Downloads
+    ok_count = 0
+    skip_count = 0
+    err_count = 0
+    total_bytes = 0
+
+    if cfg.dry_run:
+        for t in all_tickets:
+            logging.info("[dry-run] Would download: uid=%s ref=%s name=%s -> %s",
+                         t.dataset_uid, t.named_ref, t.file_name, target_dir_for(t) / sanitize_filename(t.file_name))
+        logging.info("[dry-run] Exiting with 0.")
+        return 0
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    futures = []
+    with ThreadPoolExecutor(max_workers=cfg.max_workers, thread_name_prefix="dl") as ex:
+        for t in all_tickets:
+            futures.append(ex.submit(
+                download_one, session, t, target_dir_for(t),
+                cfg.chunk_size, cfg.skip_existing, cfg.pacing_sec
+            ))
+
+        for fut, t in zip(as_completed(futures), all_tickets):
+            res: DownloadResult = fut.result()
+            event = {
+                "ts": time.time(),
+                "event": "download",
+                "dataset_uid": t.dataset_uid,
+                "named_ref": t.named_ref,
+                "file_name": t.file_name,
+                "ticket_url": t.ticket[:120],  # truncate for log safety
+                "ok": res.ok,
+                "skipped": res.skipped,
+                "bytes": res.bytes_written,
+                "error": res.error,
+                "path": str(res.path) if res.path else None,
+            }
+            audit.write(event)
+
+            if res.ok and res.skipped:
+                skip_count += 1
+                logging.info("SKIP %s (exists, size matches)", t.file_name)
+            elif res.ok:
+                ok_count += 1
+                total_bytes += res.bytes_written
+                logging.info("OK   %s (%d bytes)", t.file_name, res.bytes_written)
+            else:
+                err_count += 1
+                logging.error("FAIL %s: %s", t.file_name, res.error)
+
+    logging.info("Done. ok=%d, skipped=%d, errors=%d, bytes=%d",
+                 ok_count, skip_count, err_count, total_bytes)
+
+    return 0 if err_count == 0 else 2
 
 
-# --------------------------------------------------------------------------------------
+# -------------------------
 # CLI
-# --------------------------------------------------------------------------------------
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Download latest drawing PDFs (one-call lookup).")
-    ap.add_argument("csv", type=Path, help="Path to single-column CSV with Item IDs")
-    ap.add_argument("-o", "--out", type=Path, default=Path("downloads"), help="Download directory")
+# -------------------------
 
-    ap.add_argument("--host", required=True, help="Teamcenter host (e.g. http://server/tc)")
-    ap.add_argument("--service", default="soa", help="Service/application name (e.g. 'soa')")
-    ap.add_argument("--env", default="", help="TCCS environment name (e.g. 'TCCS_DEV'); empty for direct")
-    ap.add_argument("--protocol", default="HTTP", choices=["HTTP", "IIOP"], help="Transport protocol")
+def parse_args(argv: Optional[Sequence[str]] = None) -> AppConfig:
+    p = argparse.ArgumentParser(
+        description="Bulk download drawing files (Teamcenter) with one-call ticketing.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p.add_argument("--input", required=True, type=Path, help="CSV/TSV or text of dataset UIDs.")
+    p.add_argument("--out", required=True, type=Path, help="Output directory.")
+    p.add_argument("--relations", nargs="*", default=list(DEFAULT_RELATIONS),
+                   help="Relation names to *prefer* when you build inputs elsewhere (not used directly in this script).")
+    p.add_argument("--named-ref", dest="named_refs", nargs="*", default=list(DEFAULT_NAMED_REFS),
+                   help="Named references to try (first is default for plain-UID inputs).")
+    p.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Objects per one ticket request.")
+    p.add_argument("--max-workers", type=int, default=DEFAULT_MAX_WORKERS, help="Parallel downloads.")
+    p.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE, help="Stream chunk size in bytes.")
+    p.add_argument("--pacing-sec", type=float, default=DEFAULT_PACING_SEC, help="Sleep between files to avoid FMS overload.")
+    p.add_argument("--no-verify-tls", action="store_true", help="Disable TLS certificate verification (test only).")
+    p.add_argument("--dry-run", action="store_true", help="Show what would happen without doing it.")
+    p.add_argument("--no-skip-existing", action="store_true", help="Force re-download even if size matches.")
+    p.add_argument("--jsonl", type=Path, default=None, help="JSONL audit output path.")
+    p.add_argument("--log-file", type=Path, default=None, help="Optional rotating log file path.")
+    p.add_argument("--timeout-connect", type=int, default=DEFAULT_TIMEOUT[0], help="Connect timeout (sec).")
+    p.add_argument("--timeout-read", type=int, default=DEFAULT_TIMEOUT[1], help="Read timeout (sec).")
 
-    ap.add_argument("-u", "--user", required=True)
-    ap.add_argument("-p", "--password", required=True)
-    ap.add_argument("--group", default="dba")
-    ap.add_argument("--role", default="dba")
-    ap.add_argument("--locale", default="en_US")
-    ap.add_argument("--session", default="")
+    # Auth
+    p.add_argument("--username", default=os.environ.get("TC_USERNAME"), help="User (or set TC_USERNAME).")
+    p.add_argument("--password", default=os.environ.get("TC_PASSWORD"), help="Password (or set TC_PASSWORD).")
+    p.add_argument("--token", default=os.environ.get("TC_BEARER_TOKEN"), help="Bearer token (or set TC_BEARER_TOKEN).")
 
-    args = ap.parse_args()
+    p.add_argument("--site-profile", default=os.environ.get("TC_SITE_PROFILE"), help="Optional site profile switch.")
 
-    cfg = TcLogin(
-        host=args.host,
-        service=args.service,
-        environment=args.env,
-        protocol=args.protocol,
-        user=args.user,
+    args = p.parse_args(argv)
+
+    return AppConfig(
+        input_path=args.input,
+        out_dir=args.out,
+        relations=tuple(args.relations),
+        named_refs=tuple(args.named_refs),
+        batch_size=int(args.batch_size),
+        max_workers=int(args.max_workers),
+        chunk_size=int(args.chunk_size),
+        pacing_sec=float(args.pacing_sec),
+        verify_tls=not args.no_verify_tls,
+        dry_run=bool(args.dry_run),
+        skip_existing=not args.no_skip_existing,
+        jsonl_path=args.jsonl,
+        log_file=args.log_file,
+        timeout=(int(args.timeout_connect), int(args.timeout_read)),
+        username=args.username,
         password=args.password,
-        group=args.group,
-        role=args.role,
-        locale=args.locale,
-        session_discriminator=args.session,
+        token=args.token,
+        site_profile=args.site_profile,
     )
 
-    hits = run(args.csv, args.out, cfg)
-    print(f"\nDone. Downloaded {len(hits)} file(s) to {args.out.resolve()}")
-    for h in hits:
-        print(f" - {h.item_id} {h.rev_id} -> {h.saved_to}")
 
+# -------------------------
+# Main
+# -------------------------
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    cfg = parse_args(argv)
+    try:
+        return run(cfg)
+    except KeyboardInterrupt:
+        logging.warning("Interrupted.")
+        return 130
+    except requests.HTTPError as http_err:
+        logging.error("HTTP error: %s", http_err)
+        return 3
+    except Exception as ex:
+        logging.exception("Fatal error: %s", ex)
+        return 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
