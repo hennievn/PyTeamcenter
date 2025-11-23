@@ -2,7 +2,7 @@
 
 ## ClientX 
 
-This is an implementation of the backend code in the HelloTeamcenter example, i.e. ClientX .NET example in Python. This does not use the pythonnet package.
+This is an implementation of the backend code in the HelloTeamcenter example, i.e. ClientX .NET example in Python.
 
 This has been used extensively with Teamcenter 12.0, so must be tested with later versions.
 

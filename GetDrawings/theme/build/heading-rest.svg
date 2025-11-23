@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="22"
+   height="22"
+   viewBox="0 0 5.8208334 5.8208333"
+   version="1.1"
+   id="svg513"
+   sodipodi:docname="dark.svg"
+   inkscape:version="1.0.2 (e86c870879, 2021-01-15)"
+   inkscape:export-batch-path="theme\build"
+   inkscape:export-batch-name=""
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <sodipodi:namedview
+     pagecolor="#333333"
+     bordercolor="#666666"
+     borderopacity="1"
+     objecttolerance="10"
+     gridtolerance="10"
+     guidetolerance="10"
+     inkscape:pageopacity="0"
+     inkscape:pageshadow="2"
+     inkscape:window-width="1680"
+     inkscape:window-height="972"
+     id="namedview423"
+     showgrid="false"
+     inkscape:pagecheckerboard="true"
+     inkscape:showpageshadow="false"
+     inkscape:zoom="1.823598"
+     inkscape:cx="146.15818"
+     inkscape:cy="85.256458"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg513"
+     inkscape:document-rotation="0"
+     inkscape:deskcolor="#d1d1d1">
+    <inkscape:page
+       x="0"
+       y="0"
+       width="5.8208332"
+       height="5.8208332"
+       id="page1"
+       margin="0"
+       bleed="0" />
+  </sodipodi:namedview>
+  <title
+     id="title515">Sun Valley dark</title>
+  <defs
+     id="defs507">
+    <linearGradient
+       id="linearGradient163633">
+      <stop
+         style="stop-color:#313131;stop-opacity:1"
+         offset="0"
+         id="stop163629" />
+      <stop
+         style="stop-color:#2c2c2c;stop-opacity:1"
+         offset="1"
+         id="stop163631" />
+    </linearGradient>
+    <linearGradient
+       id="linearGradient139875">
+      <stop
+         style="stop-color:#313131;stop-opacity:1"
+         offset="0"
+         id="stop139871" />
+      <stop
+         style="stop-color:#2b2b2b;stop-opacity:1"
+         offset="1"
+         id="stop139873" />
+    </linearGradient>
+    <linearGradient
+       xlink:href="#linearGradient163633"
+       id="linearGradient59562"
+       gradientUnits="userSpaceOnUse"
+       gradientTransform="translate(-14.552088,23.282816)"
+       x1="29.10417"
+       y1="9.7895756"
+       x2="29.104172"
+       y2="10.583331" />
+    <linearGradient
+       xlink:href="#linearGradient139875"
+       id="linearGradient59560"
+       gradientUnits="userSpaceOnUse"
+       gradientTransform="translate(-14.552084,17.461981)"
+       x1="29.10417"
+       y1="9.7895832"
+       x2="29.104172"
+       y2="10.583331" />
+  </defs>
+  <metadata
+     id="metadata510">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title>Sun Valley dark</dc:title>
+        <cc:license
+           rdf:resource="http://creativecommons.org/licenses/by-nc-sa/4.0/" />
+        <dc:date>2022. 07. 13.</dc:date>
+        <dc:creator>
+          <cc:Agent>
+            <dc:title>rdbende</dc:title>
+          </cc:Agent>
+        </dc:creator>
+      </cc:Work>
+      <cc:License
+         rdf:about="http://creativecommons.org/licenses/by-nc-sa/4.0/">
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#Reproduction" />
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#Distribution" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#Notice" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#Attribution" />
+        <cc:prohibits
+           rdf:resource="http://creativecommons.org/ns#CommercialUse" />
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#DerivativeWorks" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#ShareAlike" />
+      </cc:License>
+    </rdf:RDF>
+  </metadata>
+  <g
+     id="heading-rest"
+     transform="translate(-11.641669,-22.489063)">
+    <rect
+       style="fill:#1c1c1c;fill-opacity:1;stroke-width:0.151078;stroke-linecap:round"
+       id="rect59542"
+       width="5.8208332"
+       height="5.8208332"
+       x="11.641669"
+       y="22.489063" />
+    <rect
+       style="fill:url(#linearGradient59560);fill-opacity:1;stroke:none;stroke-width:0;stroke-linecap:square;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:396.85;stroke-opacity:0"
+       id="rect59544"
+       width="5.2916641"
+       height="5.2916641"
+       x="11.906257"
+       y="22.753651"
+       rx="1.0583328"
+       ry="1.0583328" />
+    <rect
+       style="fill:#2a2a2a;fill-opacity:1;stroke:none;stroke-width:0;stroke-linecap:square;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:396.85;stroke-opacity:0"
+       id="rect59546"
+       width="4.7624998"
+       height="4.7624998"
+       x="12.170836"
+       y="23.01823"
+       rx="0.79374999"
+       ry="0.79374999" />
+  </g>
+  <g
+     id="heading-hover"
+     transform="translate(-11.641669,-22.489063)">
+    <rect
+       style="fill:#1c1c1c;fill-opacity:1;stroke-width:0.151078;stroke-linecap:round"
+       id="rect59534"
+       width="5.8208332"
+       height="5.8208332"
+       x="11.641667"
+       y="28.309895" />
+    <rect
+       style="fill:url(#linearGradient59562);fill-opacity:1;stroke:none;stroke-width:0;stroke-linecap:square;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:396.85;stroke-opacity:0"
+       id="rect59536"
+       width="5.2916641"
+       height="5.2916641"
+       x="11.906255"
+       y="28.574482"
+       rx="1.0583328"
+       ry="1.0583328" />
+    <rect
+       style="fill:#2f2f2f;fill-opacity:1;stroke:none;stroke-width:0;stroke-linecap:square;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:396.85;stroke-opacity:0"
+       id="rect59538"
+       width="4.7624998"
+       height="4.7624998"
+       x="12.170835"
+       y="28.839062"
+       rx="0.79374999"
+       ry="0.79374999" />
+  </g>
+  <rect
+     style="fill:#2f2f2f;fill-opacity:1;stroke-width:0.21975;stroke-linecap:round"
+     id="tab-rest"
+     width="8.4666662"
+     height="8.4666662"
+     x="5.8208313"
+     y="8.137207e-07" />
+</svg>

@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="20.00001"
+   height="20.000008"
+   viewBox="0 0 5.2916692 5.2916687"
+   version="1.1"
+   id="svg513"
+   sodipodi:docname="dark.svg"
+   inkscape:version="1.0.2 (e86c870879, 2021-01-15)"
+   inkscape:export-batch-path="theme\build"
+   inkscape:export-batch-name=""
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <sodipodi:namedview
+     pagecolor="#333333"
+     bordercolor="#666666"
+     borderopacity="1"
+     objecttolerance="10"
+     gridtolerance="10"
+     guidetolerance="10"
+     inkscape:pageopacity="0"
+     inkscape:pageshadow="2"
+     inkscape:window-width="1680"
+     inkscape:window-height="972"
+     id="namedview423"
+     showgrid="false"
+     inkscape:pagecheckerboard="true"
+     inkscape:showpageshadow="false"
+     inkscape:zoom="1.823598"
+     inkscape:cx="146.15818"
+     inkscape:cy="85.256458"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg513"
+     inkscape:document-rotation="0"
+     inkscape:deskcolor="#d1d1d1">
+    <inkscape:page
+       x="0"
+       y="0"
+       width="5.2916694"
+       height="5.2916689"
+       id="page1"
+       margin="0"
+       bleed="0" />
+  </sodipodi:namedview>
+  <title
+     id="title515">Sun Valley dark</title>
+  <defs
+     id="defs507" />
+  <metadata
+     id="metadata510">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title>Sun Valley dark</dc:title>
+        <cc:license
+           rdf:resource="http://creativecommons.org/licenses/by-nc-sa/4.0/" />
+        <dc:date>2022. 07. 13.</dc:date>
+        <dc:creator>
+          <cc:Agent>
+            <dc:title>rdbende</dc:title>
+          </cc:Agent>
+        </dc:creator>
+      </cc:Work>
+      <cc:License
+         rdf:about="http://creativecommons.org/licenses/by-nc-sa/4.0/">
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#Reproduction" />
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#Distribution" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#Notice" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#Attribution" />
+        <cc:prohibits
+           rdf:resource="http://creativecommons.org/ns#CommercialUse" />
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#DerivativeWorks" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#ShareAlike" />
+      </cc:License>
+    </rdf:RDF>
+  </metadata>
+  <g
+     id="radio-pressed"
+     transform="translate(-21.167883,-15.874812)">
+    <rect
+       style="opacity:1;fill:#1c1c1c;fill-opacity:1;stroke-width:0.137344;stroke-linecap:round"
+       id="rect662443"
+       width="5.2916489"
+       height="5.2916613"
+       x="15.87624"
+       y="10.583304" />
+    <ellipse
+       style="opacity:1;fill:#4ca6d5;fill-opacity:1;stroke-width:0.548542;stroke-linecap:square;stroke-linejoin:round"
+       id="ellipse662445"
+       cx="18.523033"
+       cy="13.229049"
+       rx="2.6458232"
+       ry="2.6458292" />
+    <circle
+       style="opacity:1;fill:#58acd8;fill-opacity:1;stroke-width:0.329125;stroke-linecap:square;stroke-linejoin:round"
+       id="circle662447"
+       cx="18.523033"
+       cy="13.229049"
+       r="1.5875" />
+    <ellipse
+       style="opacity:1;fill:#000000;fill-opacity:1;stroke:#ffff00;stroke-width:0;stroke-linecap:square;stroke-linejoin:round"
+       id="circle662449"
+       cx="18.523033"
+       cy="13.229049"
+       rx="1.3229164"
+       ry="1.3229163" />
+  </g>
+  <g
+     id="radio-dis"
+     transform="translate(-21.167883,-15.874812)">
+    <rect
+       style="opacity:1;fill:#1c1c1c;fill-opacity:1;stroke-width:0.137344;stroke-linecap:round"
+       id="rect665611"
+       width="5.2916489"
+       height="5.2916613"
+       x="15.876236"
+       y="15.874972" />
+    <ellipse
+       style="opacity:1;fill:#404040;fill-opacity:1;stroke-width:0.548542;stroke-linecap:square;stroke-linejoin:round"
+       id="ellipse665613"
+       cx="18.523033"
+       cy="18.520706"
+       rx="2.6458232"
+       ry="2.6458292" />
+    <circle
+       style="opacity:1;fill:#000000;fill-opacity:1;stroke-width:0.329125;stroke-linecap:square;stroke-linejoin:round"
+       id="circle665615"
+       cx="18.523027"
+       cy="18.520718"
+       r="1.5875" />
+  </g>
+  <g
+     id="radio-unsel-pressed"
+     transform="translate(-21.167883,-15.874812)">
+    <rect
+       style="opacity:1;fill:#1c1c1c;fill-opacity:1;stroke-width:0.137344;stroke-linecap:round"
+       id="rect150417"
+       width="5.2916675"
+       height="5.2916675"
+       x="21.167889"
+       y="10.583146" />
+    <circle
+       style="opacity:1;fill:#404040;fill-opacity:1;stroke-width:0.548545;stroke-linecap:square;stroke-linejoin:round"
+       id="circle150419"
+       cx="23.813721"
+       cy="13.22898"
+       r="2.6458321" />
+    <circle
+       style="opacity:1;fill:#2c2c2c;fill-opacity:1;stroke-width:1.19792;stroke-linecap:square;stroke-linejoin:round"
+       id="circle150421"
+       cx="23.813721"
+       cy="13.22898"
+       r="2.3812487" />
+    <circle
+       style="opacity:1;fill:#000000;fill-opacity:1;stroke-width:0.665511;stroke-linecap:square;stroke-linejoin:round"
+       id="circle13753"
+       cx="23.813723"
+       cy="13.22898"
+       r="1.3229166" />
+  </g>
+  <g
+     id="radio-unsel-dis"
+     transform="translate(-21.167883,-15.874812)">
+    <rect
+       style="opacity:1;fill:#1c1c1c;fill-opacity:1;stroke-width:0.137344;stroke-linecap:round"
+       id="rect641029"
+       width="5.2916675"
+       height="5.2916675"
+       x="21.167885"
+       y="15.874812" />
+    <circle
+       style="opacity:1;fill:#404040;fill-opacity:1;stroke-width:0.548545;stroke-linecap:square;stroke-linejoin:round"
+       id="circle641031"
+       cx="23.813715"
+       cy="18.520649"
+       r="2.6458321" />
+    <circle
+       style="opacity:1;fill:#1c1c1c;fill-opacity:1;stroke-width:1.19792;stroke-linecap:square;stroke-linejoin:round"
+       id="circle641033"
+       cx="23.813715"
+       cy="18.520649"
+       r="2.3812487" />
+  </g>
+  <g
+     id="switch-pressed"
+     transform="translate(-21.167883,-15.874812)">
+    <rect
+       style="fill:#1c1c1c;fill-opacity:1;stroke-width:0.309148"
+       id="rect1887"
+       width="10.583334"
+       height="5.2916651"
+       x="26.459299"
+       y="10.583257" />
+    <rect
+       style="fill:#4ca6d5;fill-opacity:1;stroke:#b3b3b3;stroke-width:0;stroke-linejoin:bevel"
+       id="rect548138"
+       width="10.583332"
+       height="5.2916656"
+       x="26.459299"
+       y="10.583257"
+       rx="2.6458333"
+       ry="2.6458333" />
+    <rect
+       style="fill:#58acd8;fill-opacity:1;stroke:#b3b3b3;stroke-width:0;stroke-linejoin:bevel"
+       id="rect548721"
+       width="5.027082"
+       height="4.1399498"
+       x="31.486383"
+       y="11.159116"
+       rx="2.0699754"
+       ry="2.0699754" />
+    <rect
+       style="fill:#000000;fill-opacity:1;stroke:#b3b3b3;stroke-width:0;stroke-linejoin:bevel"
+       id="rect548331"
+       width="4.4979157"
+       height="3.7041657"
+       x="31.750967"
+       y="11.377011"
+       rx="1.8520833"
+       ry="1.8520833" />
+  </g>
+  <g
+     id="switch-dis"
+     transform="translate(-21.167883,-15.874812)">
+    <rect
+       style="fill:#1c1c1c;fill-opacity:1;stroke-width:0.309148"
+       id="rect1889"
+       width="10.583334"
+       height="5.2916651"
+       x="26.459299"
+       y="15.874924" />
+    <rect
+       style="fill:#404040;fill-opacity:1;stroke:#b3b3b3;stroke-width:0;stroke-linejoin:bevel"
+       id="rect580973"
+       width="10.583332"
+       height="5.2916656"
+       x="26.459299"
+       y="15.874924"
+       rx="2.6458333"
+       ry="2.6458333" />
+    <circle
+       style="fill:#a5a5a5;fill-opacity:1;stroke:#b3b3b3;stroke-width:0;stroke-linejoin:bevel"
+       id="circle580977"
+       cx="34.396801"
+       cy="-18.520758"
+       transform="scale(1,-1)"
+       r="1.5874995" />
+  </g>
+</svg>
