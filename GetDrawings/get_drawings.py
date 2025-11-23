@@ -404,7 +404,7 @@ class App(tk.Tk):
             messagebox.showinfo("Busy", "A download is already in progress.")
             return
 
-        host = os.getenv("TC_SERVER_HOST") or os.getenv("TC_URL") or "http://GVWTCUPRODAPP.gvwholdings.com:8001/tc"
+        host = os.getenv("TC_SERVER_HOST") or os.getenv("TC_URL") or "http://your_server_address:8001/tc"
         user = self.user_var.get().strip()
         pw = self.pw_var.get()
         item_ids = [s.strip() for s in self.ids_txt.get("1.0", "end").splitlines() if s.strip()]
