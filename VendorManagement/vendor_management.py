@@ -37,7 +37,13 @@ class VendorManagementExample:
     # API mirroring the VB sample
     # ------------------------------------------------------------------ #
     def create_vendors(self) -> VMTypes.CreateVendorsResponse | None:
-        """Create or update a vendor, prompting for the core attributes."""
+        """
+        Create or update a vendor, prompting for the core attributes.
+
+        Wraps `VendorManagementService.CreateOrUpdateVendors`.
+        Prompts for Vendor ID, Name, Rev ID, Role Type, Certification Status,
+        and Vendor Status.
+        """
         LOGGER.info("Running createVendors sample.")
         vendor = VMTypes.VendorProperties()
         vendor.ClientId = "AppX-Test"
@@ -55,7 +61,11 @@ class VendorManagementExample:
         return response
 
     def create_bid_packages(self) -> VMTypes.CreateBidPacksResponse | None:
-        """Create or update bid packages."""
+        """
+        Create or update bid packages.
+
+        Wraps `VendorManagementService.CreateOrUpdateBidPackages`.
+        """
         LOGGER.info("Running createBidPackages sample.")
         bid = VMTypes.BidPackageProps()
         bid.ClientId = "AppX-Test"
@@ -71,7 +81,13 @@ class VendorManagementExample:
         return response
 
     def create_line_items(self) -> None:
-        """Create line items and associate them with a bid package."""
+        """
+        Create line items and associate them with a bid package.
+
+        Wraps `VendorManagementService.CreateOrUpdateLineItems`.
+        First creates a Bid Package (via `create_bid_packages`), then attaches
+        the new line item to its revision.
+        """
         LOGGER.info("Running createLineItems sample.")
         line = VMTypes.LineItemProps()
         line.Name = input("Line Item Name: ").strip()
@@ -99,7 +115,11 @@ class VendorManagementExample:
         _log_partial_errors("createOrUpdateLineItems", service_data)
 
     def delete_vendor_roles(self) -> None:
-        """Delete vendor roles associated with a vendor revision."""
+        """
+        Delete vendor roles associated with a vendor revision.
+
+        Wraps `VendorManagementService.DeleteVendorRoles`.
+        """
         LOGGER.info("Running deleteVendorRoles sample.")
         vendor = VMTypes.VendorProperties()
         vendor.ClientId = "AppX-Test"
@@ -112,7 +132,11 @@ class VendorManagementExample:
         _log_partial_errors("deleteVendorRoles", service_data)
 
     def delete_vendors(self) -> None:
-        """Delete vendors and their associated revisions/roles."""
+        """
+        Delete vendors and their associated revisions/roles.
+
+        Wraps `VendorManagementService.DeleteVendors`.
+        """
         LOGGER.info("Running deleteVendors sample.")
         vendor = VMTypes.VendorProperties()
         vendor.ClientId = "AppX-Test"
@@ -124,7 +148,11 @@ class VendorManagementExample:
         _log_partial_errors("deleteVendors", service_data)
 
     def create_parts(self) -> VMTypes.CreateVendorPartsResponse | None:
-        """Create vendor parts (commercial or manufacturer)."""
+        """
+        Create vendor parts (commercial or manufacturer).
+
+        Wraps `VendorManagementService.CreateOrUpdateVendorParts`.
+        """
         LOGGER.info("Running createParts sample.")
         part = VMTypes.VendorPartProperties()
         part.ClientId = "AppX-Test"

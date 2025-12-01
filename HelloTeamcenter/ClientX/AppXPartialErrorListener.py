@@ -7,8 +7,14 @@ import Teamcenter.Soa.Client.Model as TcSoaClientModel  # type: ignore
 class AppXPartialErrorListener(TcSoaClientModel.PartialErrorListener):
     """
     Listens for and prints partial errors returned in a service response.
-    Partial errors occur when a service operation succeeds for some inputs
-    but fails for others.
+
+    This class implements the `Teamcenter.Soa.Client.Model.PartialErrorListener` interface.
+    It is registered with the `ModelManager`.
+
+    **Partial Errors**:
+    In Teamcenter SOA, a service operation (like "Delete Objects") can succeed for some
+    inputs but fail for others. The service returns a "Success" status but includes
+    `PartialErrors` in the `ServiceData`. This listener intercepts those errors globally.
     """
     __namespace__ = "PyTC_AppXPartialErrorListener"
 
@@ -16,9 +22,18 @@ class AppXPartialErrorListener(TcSoaClientModel.PartialErrorListener):
         """
         Processes a list of error stacks from a service response.
 
+        This method is called by the Model Manager whenever `ServiceData` contains partial errors.
+
         Args:
-            stacks: A list of ErrorStack objects, each representing a partial
-                    failure.
+            stacks: A list of `ErrorStack` objects. Each `ErrorStack` represents a failure
+                    associated with a specific input object or client ID.
+                    - `ErrorStack` contains:
+                        - `AssociatedObject` (ModelObject) OR `ClientId` (str)
+                        - `ErrorValues` (Array of `ErrorValue`)
+                    - `ErrorValue` contains:
+                        - `Code` (int): The Teamcenter error code (e.g., 515001).
+                        - `Level` (int): Severity (1=Info, 2=Warning, 3=Error).
+                        - `Message` (str): The localized error message.
         """
         if not stacks:
             return

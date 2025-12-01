@@ -31,7 +31,17 @@ LOGGER = logging.getLogger(__name__)
 
 
 def initialize(session) -> None:
-    """Initialize strong type factories and set an object property policy."""
+    """
+    Initialize strong type factories and set an object property policy.
+
+    Mirrors `ConfiguratorManagementUtil.Initialize`.
+    This ensures that:
+    1.  The `Cfg0SoaStrongModelConfigurator` library is initialized so strong types (like `Cfg0ProductItem`) are returned.
+    2.  An `ObjectPropertyPolicy` is registered to force the return of key properties (`cfg0ConfigPerspective`, etc.) during service calls.
+
+    Args:
+        session: The active Teamcenter connection.
+    """
     TcModel.StrongObjectFactory.Init()
     TcModel.StrongObjectFactoryCfg0configurator.Init()
 
@@ -80,7 +90,19 @@ def initialize(session) -> None:
 
 
 def find_item(session, item_id: str):
-    """Fetch a product item by its item_id using GetItemFromAttribute."""
+    """
+    Fetch a product item by its item_id using GetItemFromAttribute.
+
+    Mirrors `ConfiguratorManagementUtil.findItem`.
+    Wraps `DataManagementService.GetItemFromAttribute`.
+
+    Args:
+        session: The active Teamcenter connection.
+        item_id: The Item ID to search for.
+
+    Returns:
+        The found `Item` (casted to `Cfg0ProductItem` if possible), or None.
+    """
     dm_service = DataManagementService.getService(session.connection)
 
     info = GetItemFromAttributeInfo()
@@ -106,7 +128,20 @@ def find_item(session, item_id: str):
 
 
 def get_config_perspective(item, session):
-    """Return the configurator perspective related to the given product item."""
+    """
+    Return the configurator perspective related to the given product item.
+
+    Mirrors `ConfiguratorManagementUtil.getConfigPerspective`.
+    Retrieves the `cfg0ConfigPerspective` property. If the property is not
+    loaded, it attempts to re-fetch it.
+
+    Args:
+        item: The product item.
+        session: The active Teamcenter connection.
+
+    Returns:
+        The `Cfg0ConfiguratorPerspective` object, or None.
+    """
     if item is None:
         return None
 
@@ -141,7 +176,19 @@ def get_config_perspective(item, session):
 
 
 def get_variability(perspective, session):
-    """Invoke ConfiguratorManagementService.GetVariability for the perspective."""
+    """
+    Invoke ConfiguratorManagementService.GetVariability for the perspective.
+
+    Mirrors `ConfiguratorManagementUtil.GetVariability`.
+    Calls the strong `GetVariability` service to retrieve configuration options.
+
+    Args:
+        perspective: The `Cfg0ConfiguratorPerspective` object.
+        session: The active Teamcenter connection.
+
+    Returns:
+        The `GetVariablityResponse` object.
+    """
     if perspective is None:
         LOGGER.error("Perspective is None; cannot request variability.")
         return None

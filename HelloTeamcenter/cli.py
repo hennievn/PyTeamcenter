@@ -1,4 +1,4 @@
-"""CLI entry point for the Python VendorManagement sample."""
+"""CLI entry point for the Python HelloTeamcenter sample."""
 
 from __future__ import annotations
 
@@ -8,14 +8,18 @@ import os
 
 from ClientX.Session import Session
 
-from .vendor_management import VendorManagementExample
+from .data_management import DataManagementExample
+from .home_folder import list_home_folder
+from .query_service import query_items
 
 
 def _parse_args() -> argparse.Namespace:
+    """Build the CLI argument parser used by the sample entry point."""
     parser = argparse.ArgumentParser(
         description=(
-            "Python reproduction of the Siemens VendorManagement ClientX sample. "
-            "Provides a simple interactive menu to run the service operations."
+            "Python reproduction of the Siemens HelloTeamcenter ClientX sample. "
+            "Lists the home folder, executes the 'Item Name' saved query, and "
+            "performs basic create/revise/delete data management operations."
         )
     )
     parser.add_argument(
@@ -42,6 +46,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _configure_logging(verbose: bool) -> None:
+    """Configure logging to mirror the standard ClientX samples."""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
@@ -51,13 +56,14 @@ def _configure_logging(verbose: bool) -> None:
 
 def main() -> int:
     """
-    Main entry point for the Python VendorManagement sample.
+    Main entry point for the HelloTeamcenter Python sample.
 
     Orchestrates the following:
-    1.  **Configuration**: Parses CLI arguments for host and SSO settings.
-    2.  **Session**: Establishes a connection via `ClientX.Session` and logs in.
-    3.  **Interactive Loop**: Launches `_menu_loop` to let the user choose service operations.
-    4.  **Logout**: Terminates the session upon exit.
+    1.  **Configuration**: Parses command-line arguments for host and SSO settings.
+    2.  **Session**: Initializes the `ClientX.Session` helper.
+    3.  **Login**: Authenticates with the Teamcenter server.
+    4.  **Examples**: Runs the Home Folder, Query, and Data Management examples.
+    5.  **Logout**: Terminates the session.
     """
     args = _parse_args()
     _configure_logging(args.verbose)
@@ -71,6 +77,7 @@ def main() -> int:
 
     session = Session(args.host)
     try:
+        # Authenticate with Teamcenter using the ClientX infrastructure.
         user = session.login()
         if user is None:
             logging.error("Login failed or was cancelled.")
@@ -81,44 +88,20 @@ def main() -> int:
             logging.error("Session connection unavailable after login.")
             return 2
 
-        example = VendorManagementExample(connection)
-        _menu_loop(example)
-        logging.info("Exiting VendorManagement sample.")
+        # Demonstrate the three sample flows in sequence.
+        logging.info("Listing home folder contents...")
+        list_home_folder(connection, user)
+
+        logging.info("Executing saved query 'Item Name'...")
+        query_items(connection)
+
+        logging.info("Running data management create/revise/delete sequence...")
+        DataManagementExample(connection).create_revise_and_delete()
+
+        logging.info("HelloTeamcenter sample complete.")
         return 0
     finally:
         session.logout()
-
-
-def _menu_loop(example: VendorManagementExample) -> None:
-    actions = {
-        "1": ("Create or update vendors", example.create_vendors),
-        "2": ("Create or update bid packages", example.create_bid_packages),
-        "3": ("Create or update line items", example.create_line_items),
-        "4": ("Delete vendor roles", example.delete_vendor_roles),
-        "5": ("Delete vendors", example.delete_vendors),
-        "6": ("Create vendor parts", example.create_parts),
-        "7": ("Exit", None),
-    }
-
-    choice = ""
-    while choice != "7":
-        print("\nVendorManagement sample services:")
-        for key, (title, _) in actions.items():
-            print(f" {key}. {title}")
-        choice = input("\nSelect a service (1-7): ").strip()
-
-        action = actions.get(choice)
-        if action is None:
-            print("Invalid selection. Please choose a valid option.")
-            continue
-        if choice == "7":
-            break
-
-        _, func = action
-        try:
-            func()
-        except Exception as exc:  # pragma: no cover - interactive safeguard
-            logging.exception("Service invocation failed: %s", exc)
 
 
 if __name__ == "__main__":

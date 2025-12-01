@@ -1,4 +1,20 @@
 # tc_net/core.py
+"""
+Core Teamcenter Network interactions.
+
+This module provides a high-level Pythonic interface over the low-level Teamcenter SOA (Service Oriented Architecture)
+client libraries. It handles connection management, property policies, item/revision lookups, and file downloads.
+
+Key Features:
+- **Session Management**: `connect` handles the intricacies of `Teamcenter.Soa.Client.Connection` and `SessionService`.
+- **Data Retrieval**: `get_item_latest_with_datasets` abstracts `DataManagementService.GetItemAndRelatedObjects` and
+  `GetItemFromAttribute` to robustly fetch item details and related datasets.
+- **File Management**: `download_drawing_datasets` orchestrates file downloads using `FileManagementUtility` (FMS)
+  with fallback to ticket-based downloads via `FileManagementService`.
+- **Structure Traversal**: Helpers like `_gather_document_revisions` traverse GRM relations (e.g., `Fnd0IsDescribedByDocument`)
+  to find related documentation.
+"""
+
 import os
 import logging
 import shutil
@@ -23,29 +39,67 @@ from Teamcenter.Services.Strong.Core._2007_01 import DataManagement as DM2007  #
 from Teamcenter.Services.Strong.Core._2008_06 import DataManagement as DM2008  # type: ignore
 from Teamcenter.Services.Strong.Core._2009_10 import DataManagement as DM2009  # type: ignore
 
+# Relations to check for datasets directly attached to the Item Revision
 DATASET_RELATIONS = ("IMAN_specification", "IMAN_reference", "IMAN_manifestation", "IMAN_Rendering", "TC_Attaches")
+
+# Relations to check for Document Revisions attached to the Item/Item Revision
 DOCUMENT_RELATIONS = ("Fnd0IsDescribedByDocument", "IMAN_reference")
+
 log = logging.getLogger(__name__)
 
 
 def _service_data_to_error_str(sd: ServiceData | None) -> str:
-    """Concatenate partial error messages from a ServiceData block."""
+    """
+    Concatenate partial error messages from a ServiceData block.
+
+    Args:
+        sd (ServiceData): The service data object returned by SOA calls.
+
+    Returns:
+        str: A semicolon-separated string of error messages, or empty string if none.
+    """
     return "; ".join(tc_utils.get_service_data_errors(sd))
 
 
-def connect(url, user, pwd, group="dba", role="dba", lang="en_US"):
-    """Create a Teamcenter SOA connection and log in with the given credentials."""
+def connect(url: str, user: str, pwd: str, group: str = "dba", role: str = "dba", lang: str = "en_US") -> Connection:
+    """
+    Create a Teamcenter SOA connection and log in with the given credentials.
+
+    Uses `Teamcenter.Soa.Client.Connection` to establish the link and `SessionService.Login`
+    to authenticate.
+
+    Args:
+        url (str): Teamcenter TCCS or direct web tier URL (e.g. http://tcserver:8080/tc).
+        user (str): Username.
+        pwd (str): Password.
+        group (str): User group (default 'dba').
+        role (str): User role (default 'dba').
+        lang (str): Locale code (default 'en_US').
+
+    Returns:
+        Connection: The established Teamcenter connection object.
+    """
     conn = Connection(url)
     SessionService.getService(conn).Login(user, pwd, group, role, lang)
     return conn
 
 
-def set_default_policy(conn):
+def set_default_policy(conn: Connection) -> None:
     """
     Register a minimal property policy so downstream helpers can resolve common attributes.
 
-    We keep this intentionally narrow to reduce server load: item id/name, revision id/name/status,
-    dataset name/type/refs, and ImanFile original names.
+    This uses `ObjectPropertyPolicyManager` to ensure that subsequent service calls return
+    specific properties for Items, Revisions, Datasets, and Files, reducing the need for
+    explicit `GetProperties` calls and minimizing network payload.
+
+    Properties enforced:
+    - **Item**: item_id, object_name
+    - **ItemRevision**: item_revision_id, object_name, release_status_list
+    - **Dataset**: object_name, object_type, ref_list, ref_names
+    - **ImanFile**: original_file_name
+
+    Args:
+        conn (Connection): The active Teamcenter connection.
     """
     pol = ObjectPropertyPolicy()
     pol.AddType("Item", Array[String](["item_id", "object_name"]))
@@ -65,7 +119,11 @@ def _default_revision_rule() -> str:
 
 
 def _attr_info(name: str, value: str):
-    """Build a DM2008.AttrInfo tuple for Item/ItemRevision key attributes."""
+    """
+    Build a `DM2008.AttrInfo` tuple for Item/ItemRevision key attributes.
+    
+    Used when constructing `ItemInfo` for `GetItemAndRelatedObjects`.
+    """
     attr = DM2008.AttrInfo()
     attr.Name = name
     attr.Value = value
@@ -74,7 +132,7 @@ def _attr_info(name: str, value: str):
 
 def _dataset_relation_filters(relation_types: Sequence[str], dataset_types: Sequence[str] | None):
     """
-    Construct DatasetRelationFilter instances for each relation/dataset_type combination.
+    Construct `DM2008.DatasetRelationFilter` instances for each relation/dataset_type combination.
 
     RelationTypeName is required; DatasetTypeName is optional to scope datasets further.
     """
@@ -93,7 +151,9 @@ def _dataset_relation_filters(relation_types: Sequence[str], dataset_types: Sequ
 
 def _build_dataset_info(item_id: str, dataset_types: Sequence[str] | None = None, named_refs: Sequence[str] | None = None):
     """
-    Build a DatasetInfo that requests all datasets on the configured relations, optionally filtered.
+    Build a `DM2008.DatasetInfo` structure that requests all datasets on the configured relations.
+
+    This struct tells `GetItemAndRelatedObjects` which datasets to return and how to filter them.
 
     Args:
         item_id: Client-supplied correlation id.
@@ -120,6 +180,7 @@ def _build_dataset_info(item_id: str, dataset_types: Sequence[str] | None = None
 
 
 def _describe_item_info(item_info) -> dict:
+    """Debug helper to format ItemInfo."""
     ids = []
     try:
         ids = [(attr.Name, attr.Value) for attr in getattr(item_info, "Ids", []) or []]
@@ -134,6 +195,7 @@ def _describe_item_info(item_info) -> dict:
 
 
 def _describe_rev_info(rev_info) -> dict:
+    """Debug helper to format RevInfo."""
     return {
         "client_id": getattr(rev_info, "ClientId", None),
         "processing": getattr(rev_info, "Processing", None),
@@ -143,6 +205,7 @@ def _describe_rev_info(rev_info) -> dict:
 
 
 def _describe_dataset_info(dataset_info) -> dict:
+    """Debug helper to format DatasetInfo."""
     filt = getattr(dataset_info, "Filter", None)
     rel_filters = []
     try:
@@ -164,14 +227,22 @@ def _describe_dataset_info(dataset_info) -> dict:
     }
 
 
-def _get_item_output_by_attribute(conn, item_id: str, nrevs: int = 1):
+def _get_item_output_by_attribute(conn: Connection, item_id: str, nrevs: int = 1):
     """
-    Call GetItemFromAttribute for the given item_id.
+    Call `DataManagementService.GetItemFromAttribute` for the given item_id.
+
+    This acts as a robust fallback or initial search to find an Item by its ID.
 
     Args:
         conn: Active Teamcenter connection.
         item_id: Item identifier to search for (uses ItemAttributes["item_id"]).
         nrevs: Number of revisions to return (0 = all revisions per 2009_10 docs).
+
+    Returns:
+        GetItemFromAttributeItemOutput: The output structure containing the Item and Revisions.
+
+    Raises:
+        RuntimeError: If partial errors occur or no output is returned.
     """
     dm = DataManagementService.getService(conn)
 
@@ -193,16 +264,25 @@ def _get_item_output_by_attribute(conn, item_id: str, nrevs: int = 1):
     return outputs[0]
 
 
-def get_item_latest_with_datasets(conn, item_id, dataset_types=None, named_refs=None, latest_only: bool = True):
+def get_item_latest_with_datasets(conn: Connection, item_id: str, dataset_types=None, named_refs=None, latest_only: bool = True):
     """
-    Fetch Item/ItemRevision + datasets using GetItemAndRelatedObjects, with a safe fallback to GetItemFromAttribute.
+    Fetch Item/ItemRevision + datasets using `GetItemAndRelatedObjects`, with a safe fallback to `GetItemFromAttribute`.
+
+    This function attempts to use the efficient `GetItemAndRelatedObjects` SOA call which can fetch item details,
+    revision details (filtered by Revision Rule), and related datasets in a single round-trip.
+
+    If that fails (or finds nothing), it falls back to `GetItemFromAttribute` which is simpler but returns
+    less connected graph data.
 
     Args:
         conn: Active Teamcenter connection.
-        item_id: Item identifier (passed via ItemInfo.Ids when UID is unavailable).
+        item_id: Item identifier.
         dataset_types: Optional dataset type names to filter.
         named_refs: Optional named reference names to include in the response.
         latest_only: If True, use revision rule to return only the latest revision; if False, return all revisions.
+
+    Returns:
+        GetItemAndRelatedObjectsItemOutput (or similar fallback structure).
     """
     dms = DataManagementService.getService(conn)
     fallback_output = _get_item_output_by_attribute(conn, item_id, nrevs=1 if latest_only else 0)
@@ -339,6 +419,9 @@ def _gather_document_revisions(
     """
     Collect document revisions related to an Item/ItemRevision.
 
+    It traverses `DOCUMENT_RELATIONS` (like `Fnd0IsDescribedByDocument`) to find attached
+    Document objects. If a Document Item is found, it resolves it to its latest revision.
+
     Args:
         dms: DataManagementService instance.
         source: The Item or ItemRevision to traverse from.
@@ -410,15 +493,24 @@ def _datasets_from_document(dms, doc_rev: ModelObject, wanted=("pdf", "excel", "
     return _datasets_from_relations(dms, doc_rev, DATASET_RELATIONS, wanted)
 
 
-def get_drawing_datasets(conn, item_id: str, latest_only: bool = True, wanted=("pdf", "excel", "step")) -> Tuple[List[ModelObject], object]:
+def get_drawing_datasets(conn: Connection, item_id: str, latest_only: bool = True, wanted=("pdf", "excel", "step")) -> Tuple[List[ModelObject], object]:
     """
     Returns drawing datasets related to the specified item along with the GetItemFromAttribute fallback output.
+
+    This is the main entry point for the 'Get Drawings' logic. It:
+    1. Fetches the Item and latest Revision.
+    2. Finds direct datasets attached to the Revision.
+    3. Finds related Document Revisions (via `Fnd0IsDescribedByDocument`, etc.).
+    4. Aggregates datasets from those documents.
 
     Args:
         conn: Active Teamcenter connection.
         item_id: Item identifier to query.
         latest_only: Whether to restrict to the latest item revision/doc revision; False returns all revisions.
         wanted: Lower-case substrings used to filter dataset object_type/object_name.
+    
+    Returns:
+        Tuple: (List of unique Dataset ModelObjects, The full item output object)
     """
     dms = DataManagementService.getService(conn)
     item_output = get_item_latest_with_datasets(conn, item_id, latest_only=latest_only)
@@ -479,7 +571,20 @@ def _download_with_read_tickets(
     names: List[str],
     output_directory: str,
 ) -> List[str]:
-    """Downloads files using FileManagementService.GetFileReadTickets (per Teamcenter Loose Core docs)."""
+    """
+    Downloads files using `FileManagementService.GetFileReadTickets` (Ticket-based download).
+
+    This is a fallback or alternative method to FMU caching. It explicitly requests read tickets
+    from the server for the given `ImanFile` objects and then uses `FileManagementUtility.GetFiles(tickets)`
+    to perform the transfer.
+
+    Args:
+        loose_fms: The `FileManagementService` instance.
+        fmu: The `FileManagementUtility` instance.
+        imans: List of `ImanFile` objects to download.
+        names: List of original filenames corresponding to the ImanFiles.
+        output_directory: Local directory to save files.
+    """
     if not imans:
         return []
 
@@ -515,6 +620,7 @@ def _download_with_read_tickets(
 
     ticket_array = Array[String]([ticket for ticket, _ in ticket_pairs])
     try:
+        # Download via tickets
         file_infos = fmu.GetFiles(ticket_array)
     except Exception as exc:
         log.error("FileManagementUtility.GetFiles(ticket[]) failed: %s", exc)
@@ -551,6 +657,20 @@ def _download_with_read_tickets(
 def download_drawing_datasets(conn: Connection, datasets: List[ModelObject], output_directory: str) -> List[Tuple[str, List[str]]]:
     """
     Downloads drawing dataset files using FMU cache copies first, then loose FileManagementService tickets.
+
+    Strategy:
+    1. Identify all `ImanFile`s in the datasets.
+    2. Attempt `FileManagementUtility.GetFiles(ModelObject[])`. This checks the local FCC/FMS cache.
+    3. If valid files are found in cache, copy them to `output_directory`.
+    4. If files are missing from cache, fallback to `_download_with_read_tickets` which forces a download from the server.
+
+    Args:
+        conn: Active Teamcenter connection.
+        datasets: List of dataset ModelObjects to process.
+        output_directory: Local folder to save files in.
+
+    Returns:
+        List of (DatasetUID, List[SavedFilePaths]) tuples.
     """
     if not datasets:
         return []
@@ -575,6 +695,7 @@ def download_drawing_datasets(conn: Connection, datasets: List[ModelObject], out
         saved_paths: List[str] = []
         file_map = None
         try:
+            # Try FMU Cache first
             resp = fmu.GetFiles(Array[ModelObject](imans))
             file_map = getattr(resp, "FileMap", None)
         except Exception as exc:
@@ -599,6 +720,7 @@ def download_drawing_datasets(conn: Connection, datasets: List[ModelObject], out
                     log.error("Failed to copy cache file %s -> %s: %s", src_path, dst_path, exc)
 
         if not saved_paths:
+            # Fallback to tickets
             saved_paths = _download_with_read_tickets(loose_fms, fmu, imans, names, output_directory)
 
         saved_results.append((ds.Uid, saved_paths))

@@ -1,60 +1,47 @@
-# Python FileManagement Sample
+# Python HelloTeamcenter Sample
 
-This example mirrors the Siemens **ClientX** `FileManagement` sample using Python
-3.12, `pythonnet`, and the reusable infrastructure that lives in `ClientX/`.
-It demonstrates how to:
+> **Note:** This Python example is fully based on the copyrighted Siemens example in `examples\HelloTeamcenter\`. It serves as a direct port to demonstrate how to achieve the same functionality using Python and `pythonnet`.
 
-- bootstrap a Teamcenter SOA session with the existing Python `ClientX.Session`
-  helper,
-- use `DataManagementService.CreateDatasets2` to create scratch *Text* datasets,
-- stage local files and upload them through `FileManagementUtility.PutFiles`,
-- delete the temporary datasets, and
-- gracefully terminate the FMS connection with `FileManagementUtility.Term`.
+This example mirrors the Siemens **HelloTeamcenter** ClientX sample using
+Python, `pythonnet`, and the shared session helpers in `ClientX/`. It performs
+the same high-level workflow:
 
-The implementation intentionally follows the structure of
-`examples/FileManagement/fms/FMS.cs` so readers can compare the code paths
-side-by-side. By default it mirrors the C# constants: 1 single-file upload
-and a 120-dataset, 3-files-per-dataset bulk upload. You can scale those
-down for test rigs with `FMS_DATASET_COUNT` and `FMS_FILES_PER_DATASET`.
+1. **Establish a Session:** Connects to the Teamcenter SOA server using `ClientX.Session`, handling credentials and login (including SSO support).
+2. **Home Folder Listing:** Retrieves the logged-in user's Home folder and lists its contents, demonstrating property retrieval (`GetProperties`) and object loading (`LoadObjects`).
+3. **Saved Query Execution:** Finds and executes the system "Item Name" saved query, paginating through results and displaying object details. This demonstrates `SavedQueryService`.
+4. **Data Management Workflow:** Performs a complete lifecycle test:
+    - Generates Item and Revision IDs (`GenerateItemIdsAndInitialRevisionIds`).
+    - Creates Items with specific properties and forms (`CreateItems`, `CreateOrUpdateForms`).
+    - Revises the created items (`Revise2`).
+    - Deletes the created objects to clean up (`DeleteObjects`).
 
 ## Layout
 
 ```
-examples/file_management_py/
-├─ resources/ReadMe.txt        # Base file that gets uploaded
-├─ file_management.py          # High-level helper that mirrors the C# Sample
-├─ fms.py                      # CLI entry point
-└─ README.md                   # You are here
+examples/hello_teamcenter_py/
+├─ home_folder.py      # Demonstrates traversing the Home Folder and loading properties.
+├─ query_service.py    # Demonstrates finding and executing Saved Queries.
+├─ data_management.py  # Demonstrates creating, revising, and deleting Items.
+├─ cli.py              # Command-line entry point orchestrating the examples.
+├─ __init__.py
+└─ README.md           # You are here
 ```
 
 ## Running the sample
 
 ```bash
-uv pip install -r requirements.txt  # ensure pythonnet + dependencies are present
-source .venv/bin/activate           # or activate via your workflow
+uv pip install -r requirements.txt
+source .venv/bin/activate
 
-python -m examples.file_management_py.fms \
+python -m examples.hello_teamcenter_py.cli \
   --host http://localhost:7001/tc \
   --sso-login-url https://sso.example.com/tc \
   --sso-app-id Teamcenter \
-  --work-dir ./scratch/work
+  --verbose
 ```
 
-You will be prompted for Teamcenter credentials unless the standard `TCUSER`
-env vars (or SSO configuration) are provided. By default the script stages
-temporary files in `examples/file_management_py/work/` and removes the
-datasets it created once the upload completes.
-
-For Single Sign-On scenarios, configure the usual environment variables used
-by `ClientX.Session` (`TC_SSO_LOGIN_URL`, `TC_SSO_APP_ID`, `TC_AUTH=SSO`, …)
-before launching the script, or pass the `--sso-login-url` / `--sso-app-id`
-flags shown above.
-
-Enable verbose logging with:
-
-```bash
-python -m examples.file_management_py.fms --verbose
-```
-
-The CLI exits with a non-zero status when login fails so that higher-level
-automation can detect the failure.
+Credentials follow the normal precedence (environment variables or interactive
+prompt) via `ClientX.Session`. Logging captures both the descriptive output and
+any partial errors returned from the strong services so you can inspect the
+results of each stage. The SSO flags mirror the C# sample parameters and simply
+populate `TC_SSO_LOGIN_URL` / `TC_SSO_APP_ID` (and `TC_AUTH=SSO`).

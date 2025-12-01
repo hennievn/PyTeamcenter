@@ -1,13 +1,17 @@
 # Python Runtime Business Object Sample
 
+> **Note:** This Python example is fully based on the copyrighted Siemens example in `examples\RuntimeBO\`. It serves as a direct port to demonstrate how to achieve the same functionality using Python and `pythonnet`.
+
 This example mirrors the Siemens **RuntimeBO** ClientX sample using Python,
 `pythonnet`, and the shared Teamcenter session infrastructure in `ClientX/`.
-It performs the same steps as the original:
+It demonstrates how to interact with **Runtime Business Objects (RBOs)**, which are transient objects not persisted in the database but used for runtime operations or temporary data structures.
 
-1. Establish a Teamcenter SOA session.
-2. Create a runtime business object (RBO) instance.
-3. Populate a couple of runtime properties (`srb9StringProp`, `srb9IntegerProperty`).
-4. Display the service outcome and report any partial errors.
+The workflow consists of:
+
+1.  **Session Setup**: Authenticates with Teamcenter using `ClientX.Session`.
+2.  **RBO Creation**: Uses `DataManagementService.CreateObjects` to instantiate a specific Runtime Business Object type (default: `SRB9runtimebo1`).
+3.  **Property Population**: Sets initial values for runtime properties (`srb9StringProp`, `srb9IntegerProperty`) during creation.
+4.  **Verification**: Logs the UID and type of the created object to confirm successful instantiation.
 
 ## Layout
 

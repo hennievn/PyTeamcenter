@@ -12,7 +12,20 @@ from Teamcenter.Soa.Client.Model.Strong import WorkspaceObject  # type: ignore
 
 class AppXModelEventListener(TcSoaClientModel.ModelEventListener):
     """
-    Listens for changes to the client-side data model and prints them to the console.
+    Listens for changes to the client-side data model.
+
+    This class implements `Teamcenter.Soa.Client.Model.ModelEventListener`.
+    The Model Manager notifies this listener when objects in the local Cache are created,
+    updated, or deleted as a result of service calls.
+
+    **Events Handled:**
+    - `LocalObjectChange`: Called when **this** client's action caused an object update
+      (e.g., checking out an item, modifying a property).
+    - `LocalObjectDelete`: Called when **this** client's action deleted an object.
+
+    **Note on Shared Events:**
+    This implementation does not currently override `SharedObjectChange` or `SharedObjectDelete`,
+    which are triggered by changes from **other** clients (if session sharing/events are enabled).
     """
     __namespace__ = "PyTC_AppXModelEventListener"
 
@@ -20,44 +33,25 @@ class AppXModelEventListener(TcSoaClientModel.ModelEventListener):
         """
         Handles notifications when ModelObjects are modified in the local cache.
 
-        Args:
-            objects: A list of ModelObjects that have been changed.
-        """
-        if not objects:
-            return
-        print(f"\nModified Objects handled in {self.__class__.__name__}:")
-        print("The following objects have been updated in the client data model:")
-        for obj in objects:
-            uid = obj.Uid
-            type_name = obj.GetType().Name
-            name = ""
+        This is called by the ModelManager when the `ServiceData` returned by a service
+        contains updated objects that are already tracked in the client's Data Model.
 
-            # If the object is a WorkspaceObject, try to get its 'object_string' property for a display name.
-            if isinstance(obj, WorkspaceObject):
-                try:
-                    prop = obj.GetProperty("object_string")
-                    if prop is not None:
-                        name = prop.StringValue
-                except TcSoaExceptions.NotLoadedException:
-                    # This is expected if the property wasn't loaded; 'name' remains empty.
-                    pass
-                except Exception as e_generic:
-                    # Catch any other unexpected error during property access.
-                    print(f"    Error accessing 'object_string' for {uid} ({type_name}): {e_generic}")
-                    pass
-            print(f"    - UID: {uid}, Type: {type_name}, Name: {name or 'N/A'}")
+        Args:
+            objects: A list of `ModelObject` instances that have been changed.
+        """
+        # Output suppressed per user request
+        pass
 
     def LocalObjectDelete(self, uids: list[str]) -> None:
         """
         Handles notifications when ModelObjects are deleted from the server and
         removed from the local cache.
 
+        This is called by the ModelManager when the `ServiceData` indicates objects
+        have been deleted.
+
         Args:
-            uids: A list of UIDs of the objects that have been deleted.
+            uids: A list of UIDs (strings) of the objects that have been deleted.
         """
-        if not uids:
-            return
-        print(f"\nDeleted Objects handled in {self.__class__.__name__}:")
-        print("The following objects have been deleted from the server and removed from the client data model:")
-        for u in uids:
-            print(f"    - UID: {u}")
+        # Output suppressed per user request
+        pass

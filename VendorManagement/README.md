@@ -1,9 +1,20 @@
 # Python VendorManagement Sample
 
+> **Note:** This Python example is fully based on the copyrighted Siemens example in `examples\VendorManagement\`. It serves as a direct port to demonstrate how to achieve the same functionality using Python and `pythonnet`.
+
 This example mirrors the Siemens **VendorManagement** ClientX sample using
 Python 3.12, `pythonnet`, and the reusable session infrastructure in `ClientX/`.
 It demonstrates calling the vendor management strong services to create/update
 vendors, bid packages, line items, vendor roles, and vendor parts.
+
+The sample covers the following operations using `VendorManagementService`:
+
+1.  **createVendors**: Creates or updates a Vendor object (`CreateOrUpdateVendors`).
+2.  **createBidPackages**: Creates or updates a Bid Package (`CreateOrUpdateBidPackages`).
+3.  **createLineItems**: Creates a line item and associates it with a bid package revision (`CreateOrUpdateLineItems`).
+4.  **deleteVendorRoles**: Removes a specific role from a vendor (`DeleteVendorRoles`).
+5.  **deleteVendors**: Deletes a vendor and its associated revisions/roles (`DeleteVendors`).
+6.  **createParts**: Creates a vendor part, either a Commercial Part or Manufacturer Part (`CreateOrUpdateVendorParts`).
 
 ## Layout
 

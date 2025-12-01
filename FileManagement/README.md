@@ -1,15 +1,17 @@
 # Python FileManagement Sample
 
+> **Note:** This Python example is fully based on the copyrighted Siemens example in `examples\FileManagement\`. It serves as a direct port to demonstrate how to achieve the same functionality using Python and `pythonnet`.
+
 This example mirrors the Siemens **ClientX** `FileManagement` sample using Python
 3.12, `pythonnet`, and the reusable infrastructure that lives in `ClientX/`.
-It demonstrates how to:
+It demonstrates the following File Management Service (FMS) workflows:
 
-- bootstrap a Teamcenter SOA session with the existing Python `ClientX.Session`
-  helper,
-- use `DataManagementService.CreateDatasets2` to create scratch *Text* datasets,
-- stage local files and upload them through `FileManagementUtility.PutFiles`,
-- delete the temporary datasets, and
-- gracefully terminate the FMS connection with `FileManagementUtility.Term`.
+1.  **Session Setup**: Establishes a connection using `ClientX.Session`.
+2.  **Dataset Creation**: Uses `DataManagementService.CreateDatasets2` to create temporary *Text* datasets to hold the files.
+3.  **File Staging**: Prepares local text files (copies of `ReadMe.txt`) to simulate user content.
+4.  **File Upload (PutFiles)**: Uses the `FileManagementUtility.PutFiles` high-level API to upload files to the created datasets. This handles the complexity of FMS tickets (`GetDatasetWriteTickets`) internally.
+5.  **Cleanup**: Deletes the temporary datasets using `DataManagementService.DeleteObjects`.
+6.  **Termination**: Cleans up FMS resources using `FileManagementUtility.Term`.
 
 The implementation intentionally follows the structure of
 `examples/FileManagement/fms/FMS.cs` so readers can compare the code paths

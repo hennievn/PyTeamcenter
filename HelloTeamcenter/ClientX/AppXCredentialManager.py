@@ -38,6 +38,18 @@ class AppXCredentialManager(TcSoaClient.CredentialManager):
     """
     Manages user credentials for Teamcenter SOA services, handling initial login
     prompts and re-authentication challenges.
+
+    This class extends `Teamcenter.Soa.Client.CredentialManager`.
+    It is registered with the `Teamcenter.Soa.Client.Connection` object.
+
+    Responsibilities:
+    1.  **Initial Login**: Provides credentials when the `SessionService.Login` is called.
+    2.  **Session Expiry**: When the server returns a `SessionException` (401), the framework
+        calls `GetCredentials` to re-acquire valid credentials transparently.
+    3.  **Invalid Credentials**: When a login attempt fails, the framework calls `GetCredentials`
+        to allow the user to correct their input.
+    4.  **Caching**: Caches successful credentials via `SetUserPassword` and `SetGroupRole` to
+        support silent re-authentication.
     """
     __namespace__ = "PythonCredentialManager"
 
@@ -54,7 +66,7 @@ class AppXCredentialManager(TcSoaClient.CredentialManager):
 
     def SetGroupRole(self, group: str, role: str) -> None:
         """
-        Caches the group and role. Called after the SessionService.setSessionGroupMember
+        Caches the group and role. Called after the `SessionService.setSessionGroupMember`
         service operation is called.
 
         Args:
@@ -68,6 +80,11 @@ class AppXCredentialManager(TcSoaClient.CredentialManager):
     def CredentialType(self) -> int:
         """
         Returns the type of credentials this implementation provides.
+        
+        Values:
+        - `TcSoa.SoaConstants.CLIENT_CREDENTIAL_TYPE_STD` (2): Standard User/Password.
+        - `TcSoa.SoaConstants.CLIENT_CREDENTIAL_TYPE_SSO` (1): Single Sign-On.
+
         Note: This property may not be accessible by the .NET infrastructure;
         see get_CredentialType for the compatible getter.
         """
@@ -83,6 +100,7 @@ class AppXCredentialManager(TcSoaClient.CredentialManager):
     def get_CredentialType(self) -> int:
         """
         Provides a .NET-compatible getter for the CredentialType property.
+        Used by the internal SOA Framework logic.
         """
         return self._CredentialType
 
@@ -195,7 +213,7 @@ class AppXCredentialManager(TcSoaClient.CredentialManager):
     def SetUserPassword(self, user: str, password: str, discriminator: str):
         """
         Caches the user, password, and discriminator after a successful login.
-        This method is called by the SOA framework after the SessionService.login
+        This method is called by the SOA framework after the `SessionService.Login`
         operation succeeds.
 
         Args:

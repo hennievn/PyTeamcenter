@@ -59,6 +59,16 @@ def _configure_logging(verbose: bool) -> None:
 
 
 def main() -> int:
+    """
+    Main entry point for the Python FileManagement sample.
+
+    Orchestrates the following:
+    1.  **Configuration**: Parses command-line arguments for host and SSO settings.
+    2.  **Session**: Initializes the `ClientX.Session` helper.
+    3.  **Login**: Authenticates with the Teamcenter server.
+    4.  **FMS Demo**: Runs the `FileManagementExample` logic (upload/cleanup).
+    5.  **Logout**: Terminates the session.
+    """
     args = _parse_args()
     _configure_logging(args.verbose)
 

@@ -12,7 +12,20 @@ from Teamcenter.Soa.Client.Model.Strong import WorkspaceObject  # type: ignore
 
 class AppXModelEventListener(TcSoaClientModel.ModelEventListener):
     """
-    Listens for changes to the client-side data model and prints them to the console.
+    Listens for changes to the client-side data model.
+
+    This class implements `Teamcenter.Soa.Client.Model.ModelEventListener`.
+    The Model Manager notifies this listener when objects in the local Cache are created,
+    updated, or deleted as a result of service calls.
+
+    **Events Handled:**
+    - `LocalObjectChange`: Called when **this** client's action caused an object update
+      (e.g., checking out an item, modifying a property).
+    - `LocalObjectDelete`: Called when **this** client's action deleted an object.
+
+    **Note on Shared Events:**
+    This implementation does not currently override `SharedObjectChange` or `SharedObjectDelete`,
+    which are triggered by changes from **other** clients (if session sharing/events are enabled).
     """
     __namespace__ = "PyTC_AppXModelEventListener"
 
@@ -20,8 +33,11 @@ class AppXModelEventListener(TcSoaClientModel.ModelEventListener):
         """
         Handles notifications when ModelObjects are modified in the local cache.
 
+        This is called by the ModelManager when the `ServiceData` returned by a service
+        contains updated objects that are already tracked in the client's Data Model.
+
         Args:
-            objects: A list of ModelObjects that have been changed.
+            objects: A list of `ModelObject` instances that have been changed.
         """
         # Output suppressed per user request
         pass
@@ -31,8 +47,11 @@ class AppXModelEventListener(TcSoaClientModel.ModelEventListener):
         Handles notifications when ModelObjects are deleted from the server and
         removed from the local cache.
 
+        This is called by the ModelManager when the `ServiceData` indicates objects
+        have been deleted.
+
         Args:
-            uids: A list of UIDs of the objects that have been deleted.
+            uids: A list of UIDs (strings) of the objects that have been deleted.
         """
         # Output suppressed per user request
         pass

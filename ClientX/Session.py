@@ -4,6 +4,8 @@ Manages Teamcenter SOA session, connection, login (classic first, SSO fallback),
 This version is updated for Teamcenter 2406. It tries **classic/password** login first
 for maximum compatibility and then, if appropriate, falls back to SSO via
 Teamcenter Security Services (TcSS).
+
+It wraps the `Teamcenter.Soa.Client.Connection` class and `Teamcenter.Services.Strong.Core.SessionService`.
 """
 
 import os
@@ -41,6 +43,12 @@ class Session:
     """
     Singleton-style holder for the Teamcenter SOA Connection and login logic.
     This class ensures that only one connection is established and reused.
+
+    It manages:
+    - Connection creation (`Teamcenter.Soa.Client.Connection`).
+    - Credential management (`AppXCredentialManager`).
+    - Login sequences (Classic vs SSO).
+    - Session lifecycle (Login, Logout).
     """
     __namespace__ = "PyTC_Session"
 
@@ -53,6 +61,10 @@ class Session:
     def __init__(self, host: str) -> None:
         """
         Initialize the Teamcenter connection if not already established.
+
+        The connection is created using `Teamcenter.Soa.Client.Connection`.
+        This constructor sets up the ExceptionHandler, PartialErrorListener, ModelEventListener,
+        and RequestListener.
 
         Args:
             host: The Teamcenter server URL, either HTTP (e.g., "http://server:port/tc")
@@ -123,8 +135,12 @@ class Session:
         Log in to Teamcenter. Tries classic (user/password) login first, then
         falls back to SSO if appropriate environment indicators are present.
 
+        Classic Login uses `SessionService.Login(Credentials)`.
+        SSO Login uses `SessionService.LoginSSO(Credentials)`.
+
         Returns:
-            The logged-in User object, or None if login was cancelled or failed.
+            The logged-in User object (`Teamcenter.Soa.Client.Model.Strong.User`),
+            or None if login was cancelled or failed.
         """
         conn = Session.connection
         if conn is None:
@@ -166,7 +182,12 @@ class Session:
         return None
 
     def _login_sso(self, session_service, app_id: str, login_url: str, proxy_url: str) -> User | None:
-        """Internal helper to perform SSO login via SessionService.LoginSSO."""
+        """
+        Internal helper to perform SSO login via `SessionService.LoginSSO`.
+
+        It constructs a `Credentials` object with the SSO token (from `TC_SSO_TOKEN`)
+        and calls the LoginSSO service.
+        """
         self.credentialManager.use_sso()
         discriminator = os.getenv("TC_SESSION_DISCRIMINATOR") or self.credentialManager.discriminator
 
@@ -229,7 +250,10 @@ class Session:
         return None
 
     def _login_classic(self, session_service) -> User | None:
-        """Internal helper for password-based login, with interactive credential prompts."""
+        """
+        Internal helper for password-based login, with interactive credential prompts via `AppXCredentialManager`.
+        Uses `SessionService.Login`.
+        """
         self.credentialManager.use_standard()
         locale = os.getenv("TC_LOCALE", "").strip()
         try:
@@ -274,7 +298,10 @@ class Session:
             return None
 
     def logout(self) -> None:
-        """Terminates the Teamcenter session if it is active."""
+        """
+        Terminates the Teamcenter session if it is active.
+        Calls `SessionService.Logout`.
+        """
         if not Session.connection or not Session._logged_in:
             return
 

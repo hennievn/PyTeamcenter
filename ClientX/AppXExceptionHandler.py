@@ -16,7 +16,7 @@ import Teamcenter.Soa.Exceptions as TcSoaExceptions  # type: ignore
 
 def _is_internal_server_exception(ex: System.Exception) -> bool:
     """
-    Robustly checks if an exception is an InternalServerException.
+    Robustly checks if an exception is an `InternalServerException`.
 
     This is necessary to handle different exception types across Teamcenter
     versions and bindings (runtime vs. schema).
@@ -25,7 +25,7 @@ def _is_internal_server_exception(ex: System.Exception) -> bool:
         ex: The exception object to check.
 
     Returns:
-        True if the exception is identified as an InternalServerException.
+        True if the exception is identified as an `InternalServerException`.
     """
     # 1) Check for the runtime type if it exists in the current kit
     try:
@@ -52,9 +52,16 @@ def _is_internal_server_exception(ex: System.Exception) -> bool:
 
 class AppXExceptionHandler(TcSoaClient.ExceptionHandler):
     """
-    Handles exceptions from the SOA client. For ConnectionExceptions (e.g.,
-    server is temporarily down), it prompts the user to retry. For other
-    exceptions, it prints the error and may convert it to a SystemException.
+    Handles exceptions from the SOA client framework.
+
+    This class implements the `Teamcenter.Soa.Client.ExceptionHandler` interface.
+    It intercepts exceptions thrown during service requests, allowing for custom
+    logging, user interaction, and potential recovery logic.
+
+    Key behaviors:
+    - **Connection Errors**: Prompts the user to retry if the server is unreachable.
+    - **Protocol Errors**: Logs the error as likely non-recoverable.
+    - **Cancellations**: Re-throws to let the application handle the stop.
     """
     __namespace__ = "PythonAppXExceptionHandler"
 
@@ -65,8 +72,10 @@ class AppXExceptionHandler(TcSoaClient.ExceptionHandler):
         """
         Processes exceptions caught by the SOA framework.
 
-        - For InternalServerException types, it prints details and may offer a retry.
-        - For CanceledOperationException, it re-throws as a SystemException.
+        - For `InternalServerException` types (e.g., 500 errors, connection refused),
+          it prints details and offers a retry prompt (if it's a `ConnectionException`).
+        - For `CanceledOperationException`, it re-throws as a `SystemException` to abort
+          the current operation.
 
         Args:
             ise: The exception to handle.

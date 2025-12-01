@@ -18,14 +18,29 @@ LOGGER = logging.getLogger(__name__)
 
 
 class RuntimeBOExample:
-    """Encapsulates the runtime business-object creation flow."""
+    """
+    Encapsulates the runtime business-object creation flow.
+
+    Mirrors the `DataManagement` class in the C# RuntimeBO sample.
+    """
 
     def __init__(self, connection) -> None:
         self._connection = connection
         self._service = DataManagementService.getService(connection)
 
     def create_runtime_bo(self, *, bo_name: str, string_value: str, int_value: int) -> None:
-        """Create a runtime business object and report the response."""
+        """
+        Create a runtime business object and report the response.
+
+        Wraps `DataManagementService.CreateObjects`.
+        Constructs a `CreateIn` container specifying the Business Object name (`BoName`)
+        and initial property values (`StringProps`, `IntProps`) for the Runtime BO.
+
+        Args:
+            bo_name: The name of the Runtime Business Object type (e.g., "SRB9runtimebo1").
+            string_value: Value for the 'srb9StringProp' property.
+            int_value: Value for the 'srb9IntegerProperty' property.
+        """
         create_payload = CreateIn()
         create_payload.ClientId = "SampleRuntimeBOclient"
         create_payload.Data = CreateInput()

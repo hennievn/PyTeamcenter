@@ -33,7 +33,12 @@ class DatasetUploadSpec:
 
 
 class FileManagementExample:
-    """High-level helper that mirrors the Siemens ClientX FileManagement sample."""
+    """
+    High-level helper that mirrors the Siemens ClientX FileManagement sample.
+
+    This class orchestrates the creating of datasets, staging of files, and
+    uploading content via the `FileManagementUtility`.
+    """
 
     # Client IDs mirror the naming conventions used in the managed ClientX samples.
     SINGLE_CLIENT_ID = "datasetWriteTixTestClientId"
@@ -43,6 +48,13 @@ class FileManagementExample:
     FILES_PER_DATASET = int(os.getenv("FMS_FILES_PER_DATASET", "3"))
 
     def __init__(self, connection, working_dir: Path | None = None) -> None:
+        """
+        Initialize the example with an active connection.
+
+        Args:
+            connection: The active Teamcenter connection.
+            working_dir: Directory to stage temporary files.
+        """
         self._connection = connection
         self._working_dir = (working_dir or Path(__file__).resolve().parent / "work").resolve()
         self._working_dir.mkdir(parents=True, exist_ok=True)
@@ -64,7 +76,12 @@ class FileManagementExample:
         self.close()
 
     def close(self) -> None:
-        """Terminate outstanding FMS connections."""
+        """
+        Terminate outstanding FMS connections.
+
+        Wraps `FileManagementUtility.Term()`. This is crucial to release
+        FMS resources on the client and server.
+        """
         try:
             self._fmu.Term()
         except Exception:  # pragma: no cover - defensive
@@ -74,7 +91,16 @@ class FileManagementExample:
     # Public API
     # ------------------------------------------------------------------ #
     def run_demo(self) -> None:
-        """Execute both the single- and multi-file upload scenarios."""
+        """
+        Execute both the single- and multi-file upload scenarios.
+
+        Workflow:
+        1.  Prepare a single dataset and file.
+        2.  Upload using `FileManagementUtility`.
+        3.  Prepare multiple datasets and files (bulk test).
+        4.  Upload using `FileManagementUtility`.
+        5.  Clean up all created datasets using `DeleteObjects`.
+        """
         single_spec: DatasetUploadSpec | None = None
         multi_specs: list[DatasetUploadSpec] = []
         try:
@@ -157,7 +183,12 @@ class FileManagementExample:
         return [out.Dataset for out in outputs]
 
     def _build_ticket(self, spec: DatasetUploadSpec) -> FM2006.GetDatasetWriteTicketsInputData:
-        """Build a write-ticket request for the given dataset and staged file paths."""
+        """
+        Build a write-ticket request for the given dataset and staged file paths.
+
+        Constructs `GetDatasetWriteTicketsInputData` structures required by
+        `FileManagementUtility.PutFiles`.
+        """
         file_infos = []
         for index, path in enumerate(spec.files):
             file_info = FM2006.DatasetFileInfo()
@@ -178,7 +209,12 @@ class FileManagementExample:
         return ticket
 
     def _put_files(self, specs: Iterable[DatasetUploadSpec], label: str) -> None:
-        """Upload the staged files for the provided specs via FileManagementUtility."""
+        """
+        Upload the staged files for the provided specs via FileManagementUtility.
+
+        Wraps `FileManagementUtility.PutFiles`. This handles fetching the write tickets
+        and performing the file transfer in one go.
+        """
         tickets: list[FM2006.GetDatasetWriteTicketsInputData] = []
         for spec in specs:
             tickets.append(self._build_ticket(spec))
@@ -190,7 +226,11 @@ class FileManagementExample:
             LOGGER.info("FileManagementUtility.%s completed without partial errors.", label)
 
     def _cleanup(self, datasets: Iterable[ModelObject]) -> None:
-        """Delete the datasets created for the sample to keep the database clean."""
+        """
+        Delete the datasets created for the sample to keep the database clean.
+
+        Wraps `DataManagementService.DeleteObjects`.
+        """
         to_delete = [ds for ds in datasets if ds is not None]
         if not to_delete:
             return

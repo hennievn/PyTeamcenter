@@ -1,15 +1,15 @@
 # Python ProductConfigurator Sample
 
+> **Note:** This Python example is fully based on the copyrighted Siemens example in `examples\ProductConfigurator\`. It serves as a direct port to demonstrate how to achieve the same functionality using Python and `pythonnet`.
+
 This example mirrors the Siemens **ProductConfigurator** VB sample using Python
 3.12, `pythonnet`, and the reusable infrastructure under `ClientX/`.
-It demonstrates how to:
+It demonstrates how to perform the following configuration management tasks:
 
-- establish a Teamcenter SOA session with `ClientX.Session`,
-- initialise strong object factories and property policies required by the
-  configurator model,
-- retrieve a product item by `item_id` using `GetItemFromAttribute`,
-- resolve the associated configurator perspective, and
-- call `ConfiguratorManagementService.GetVariability`.
+1.  **Initialize Factories & Policies**: Sets up the `StrongObjectFactory` for configurator types (`Cfg0SoaStrongModelConfigurator`) and configures an `ObjectPropertyPolicy` to ensure necessary properties (e.g., `cfg0ConfigPerspective`) are loaded.
+2.  **Find Product Item**: Retrieves a `Cfg0ProductItem` (or standard `Item`) by its ID using `DataManagementService.GetItemFromAttribute`.
+3.  **Get Perspective**: Resolves the `cfg0ConfigPerspective` property from the product item. This object is the entry point for variability queries.
+4.  **Get Variability**: Calls `ConfiguratorManagementService.GetVariability` using the resolved perspective to fetch configuration data (options, families, etc.).
 
 The structure intentionally matches the original VB project so the flow can be
 compared side-by-side.

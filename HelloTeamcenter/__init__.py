@@ -1,2 +1,2 @@
-"""Python File Management sample package mirroring Siemens ClientX guidance."""
+"""Python port of the Siemens HelloTeamcenter ClientX sample."""
 

@@ -66,6 +66,15 @@ def _configure_logging(verbose: bool) -> None:
 
 
 def main() -> int:
+    """
+    Main entry point for the Python RuntimeBO sample.
+
+    Orchestrates the following:
+    1.  **Configuration**: Parses CLI args for connection details and RBO parameters.
+    2.  **Login**: Establishes a session via `ClientX.Session`.
+    3.  **Creation**: Calls `RuntimeBOExample.create_runtime_bo` to generate the object.
+    4.  **Logout**: Cleans up the session.
+    """
     args = _parse_args()
     _configure_logging(args.verbose)
 
