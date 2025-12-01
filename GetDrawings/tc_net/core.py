@@ -4,6 +4,14 @@ import logging
 import shutil
 from typing import Iterable, List, Sequence, Tuple
 
+try:
+    import tc_utils
+except ImportError:
+    try:
+        from .. import tc_utils
+    except (ImportError, ValueError):
+        from teamcenter_get_drawings import tc_utils
+
 from System import Array, String  # type: ignore
 from System.Collections import Hashtable  # type: ignore
 from Teamcenter.Soa.Client import Connection, FileManagementUtility  # type: ignore
@@ -22,13 +30,7 @@ log = logging.getLogger(__name__)
 
 def _service_data_to_error_str(sd: ServiceData | None) -> str:
     """Concatenate partial error messages from a ServiceData block."""
-    if not sd or sd.sizeOfPartialErrors() == 0:
-        return ""
-    msgs: List[str] = []
-    for i in range(sd.sizeOfPartialErrors()):
-        pe = sd.GetPartialError(i)
-        msgs.extend(ev.message for ev in getattr(pe, "errorValues", []))
-    return "; ".join(msgs)
+    return "; ".join(tc_utils.get_service_data_errors(sd))
 
 
 def connect(url, user, pwd, group="dba", role="dba", lang="en_US"):
@@ -53,9 +55,9 @@ def set_default_policy(conn):
     policy_manager = conn.ObjectPropertyPolicyManager
     policy_array = Array[ObjectPropertyPolicy]([pol])
     policy_ids = policy_manager.AddPolicies(policy_array)
-    policy_name = policy_ids[0] if policy_ids else conn.CurrentObjectPropertyPolicy
-    if policy_name:
-        conn.SetObjectPropertyPolicy(policy_name)
+    
+    if policy_ids and len(policy_ids) > 0:
+        policy_manager.SetPolicy(policy_ids[0])
 
 def _default_revision_rule() -> str:
     """Return the default revision rule name, overridable via TC_REVISION_RULE env var."""

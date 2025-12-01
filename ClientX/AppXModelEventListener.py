@@ -23,29 +23,8 @@ class AppXModelEventListener(TcSoaClientModel.ModelEventListener):
         Args:
             objects: A list of ModelObjects that have been changed.
         """
-        if not objects:
-            return
-        print(f"\nModified Objects handled in {self.__class__.__name__}:")
-        print("The following objects have been updated in the client data model:")
-        for obj in objects:
-            uid = obj.Uid
-            type_name = obj.GetType().Name
-            name = ""
-
-            # If the object is a WorkspaceObject, try to get its 'object_string' property for a display name.
-            if isinstance(obj, WorkspaceObject):
-                try:
-                    prop = obj.GetProperty("object_string")
-                    if prop is not None:
-                        name = prop.StringValue
-                except TcSoaExceptions.NotLoadedException:
-                    # This is expected if the property wasn't loaded; 'name' remains empty.
-                    pass
-                except Exception as e_generic:
-                    # Catch any other unexpected error during property access.
-                    print(f"    Error accessing 'object_string' for {uid} ({type_name}): {e_generic}")
-                    pass
-            print(f"    - UID: {uid}, Type: {type_name}, Name: {name or 'N/A'}")
+        # Output suppressed per user request
+        pass
 
     def LocalObjectDelete(self, uids: list[str]) -> None:
         """
@@ -55,9 +34,5 @@ class AppXModelEventListener(TcSoaClientModel.ModelEventListener):
         Args:
             uids: A list of UIDs of the objects that have been deleted.
         """
-        if not uids:
-            return
-        print(f"\nDeleted Objects handled in {self.__class__.__name__}:")
-        print("The following objects have been deleted from the server and removed from the client data model:")
-        for u in uids:
-            print(f"    - UID: {u}")
+        # Output suppressed per user request
+        pass

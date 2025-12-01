@@ -208,12 +208,14 @@ class Session:
         )
 
         try:
-            resp = session_service.LoginSSO(creds)
+            session_service.LoginSSO(creds)
             Session.credentialManager.SetUserPassword(creds.User, creds.Password, discriminator)
             logger.info("SSO login succeeded.")
-            Session.current_user = resp.User
+            
+            info_resp = session_service.GetTCSessionInfo()
+            Session.current_user = info_resp.User
             Session._logged_in = True
-            return resp.User
+            return info_resp.User
         except Exceptions2006.InvalidCredentialsException as e:
             logger.warning("SSO failed with invalid credentials: %s", e.Message)
         except (TypeError, System.MissingMethodException):
@@ -254,9 +256,12 @@ class Session:
                     resp = session_service.Login(creds)
                     Session.credentialManager.SetUserPassword(username, password, discriminator)
                     logger.info("Classic login succeeded for user '%s'.", username)
-                    Session.current_user = resp.User
+
+                    # Retrieve full session info (including User) since 2011_06 Login response lacks it
+                    info_resp = session_service.GetTCSessionInfo()
+                    Session.current_user = info_resp.User
                     Session._logged_in = True
-                    return resp.User
+                    return info_resp.User
                 except Exceptions2006.InvalidCredentialsException as e:
                     logger.warning("Invalid credentials for user '%s'.", username)
                     # GetCredentials will re-prompt

@@ -123,12 +123,92 @@ _DLLS = [
     "FMSNetTicket",
     "TcLogging",
     "TcSoaAiStrong",
+    "TcSoaQueryStrong",
 ]
 for name in _DLLS:
     try:
         clr.AddReference(name)  # type: ignore
     except Exception as e:
         log.debug("Optional assembly not loaded: %s (%s)", name, e)
+
+
+def get_service_data_errors(service_data) -> List[str]:
+    """
+    Extracts partial error messages from a ServiceData object (or Response wrapper).
+    
+    Handles both PascalCase (.ServiceData) and camelCase (.serviceData) properties.
+    Robustly extracts messages from ErrorValues if available, or falls back to string representation.
+    
+    Args:
+        service_data: The ServiceData object or Response object.
+        
+    Returns:
+        List[str]: A list of formatted error messages.
+    """
+    errors = []
+    if service_data is None:
+        return errors
+
+    sd = service_data
+    # Handle wrappers (Response objects)
+    # Check for .ServiceData (PascalCase) or .serviceData (camelCase)
+    if hasattr(sd, "ServiceData") and sd.ServiceData:
+        sd = sd.ServiceData
+    elif hasattr(sd, "serviceData") and sd.serviceData:
+        sd = sd.serviceData
+
+    if not hasattr(sd, "sizeOfPartialErrors"):
+        # If it's not ServiceData-like, return empty
+        return errors
+
+    count = sd.sizeOfPartialErrors()
+    if count == 0:
+        return errors
+
+    for i in range(count):
+        try:
+            err = sd.GetPartialError(i)
+            # Support both PascalCase and camelCase property access for ErrorValues
+            error_values = getattr(err, "ErrorValues", None) or getattr(err, "errorValues", None)
+            
+            if error_values:
+                for val in error_values:
+                    msg = getattr(val, "Message", None) or getattr(val, "message", str(val))
+                    code = getattr(val, "Code", None) or getattr(val, "code", "N/A")
+                    level = getattr(val, "Level", None) or getattr(val, "level", "")
+                    
+                    level_str = f"[{level}] " if level else ""
+                    errors.append(f"{level_str}[Code {code}] {msg}")
+            else:
+                errors.append(str(err))
+        except Exception as e:
+            errors.append(f"Error reading partial error {i}: {e}")
+            
+    return errors
+
+
+def CheckServiceData(service_data) -> bool:
+    """
+    Checks the provided ServiceData object for partial errors.
+    Prints detailed error messages to stdout if found.
+
+    Args:
+        service_data: The ServiceData object or Response object containing ServiceData.
+
+    Returns:
+        bool: True if partial errors exist (failure), False otherwise (success).
+    """
+    errors = get_service_data_errors(service_data)
+    
+    if not errors:
+        return False
+
+    print(f"    Warning: {len(errors)} partial error(s) in Teamcenter response:")
+    for msg in errors:
+        print(f"      {msg}")
+
+    return True
+
 
 def worker_download(conn, items: List[str], downloads_root: str, q, cancel_evt, latest_only: bool):
     """The main background worker function called by the GUI to perform downloads."""
